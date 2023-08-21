@@ -1,0 +1,15 @@
+# /etc/systemd/system/remote-server-launcher.service
+[Unit]
+ Description=Remote Server Launcher
+ RequiresMountsFor=/home/admin/wwwroot/dolibarr_documents/sellyoursaas
+
+[Service]
+ Type=forking
+ ExecStart=/etc/init.d/remote_server_launcher start
+ TimeoutSec=0
+ StandardOutput=tty
+ RemainAfterExit=yes
+ Restart=on-failure
+
+[Install]
+ WantedBy=multi-user.target
