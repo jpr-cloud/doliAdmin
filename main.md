@@ -2,13 +2,13 @@
 
 ## master
 
-- [ ] hostname del **main** (Se asigna en hetzner al crear el host)
-- [ ] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
-- [ ] /etc/hosts (revisar después de la re instalación)
-- [ ] SSH and sudo
-- [ ] `adduser myunixlogin`
-- [ ] default shell `ln -fs /bin/bash /usr/bin/sh`
-- [ ] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
+- [x] hostname del **main** (Se asigna en hetzner al crear el host)
+- [X] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
+- [X] /etc/hosts (revisar después de la re instalación)
+- [X] SSH and sudo
+- [X] `adduser myunixlogin`
+- [X] default shell `ln -fs /bin/bash /usr/bin/sh`
+- [X] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
 - [ ] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
 - [ ] edit `/etc/ssh/sshd_config`
 - [ ] reiniciar `systemtl restart sshd`
@@ -144,7 +144,7 @@ TODO
 ## SSH and sudo
 
 ```bash
-groupadd admin; useradd -m -s bash -g admin admin;
+groupadd admin; useradd -m -s /usr/bin/bash -g admin admin;
 mkdir /home/admin/logs; chown root.admin /home/admin/logs; chmod 770 /home/admin/logs;
 mkdir /mnt/diskbackup; chown admin.admin /mnt/diskbackup
 mkdir /home/admin/backup; chown admin.admin /home/admin/backup;

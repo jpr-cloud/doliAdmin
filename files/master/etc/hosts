@@ -14,11 +14,10 @@
 # 116.203.80.120 admin.jpyrsa.com.mx
 # 127.0.0.1  admin
 
-127.0.1.1 saas-main saas-main
-127.0.0.1 localhost
+128.140.100.111 admin.jpyrsa.com.mx     
+127.0.0.1       admin
+127.0.0.1       localhost
 
-127.0.0.1 admin
-116.203.80.120 admin.jpyrsa.com.mx
 
 # The following lines are desirable for IPv6 capable hosts
 ::1 localhost ip6-localhost ip6-loopback
