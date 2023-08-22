@@ -9,27 +9,28 @@
 - [X] `adduser myunixlogin`
 - [X] default shell `ln -fs /bin/bash /usr/bin/sh`
 - [X] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
-- [ ] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
-- [ ] edit `/etc/ssh/sshd_config`
-- [ ] reiniciar `systemtl restart sshd`
-- [ ] editar `/etc/sudoers`
-- [ ] cerear `/etc/sudoers.d/myunixlogin`
-- [ ] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin` `chmod o-r /etc/sudoers.d/myunixlogin`
-- [ ] Define or redefine the password for root, admin. `passwd root` `passwd admin`
-- [ ] [Para producción](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#deletion-of-information-files-at-login)
-- [ ] Creation of working directories (BOITH)
-- [ ] Creation of working directories (deploy)
-- [ ] Getting files of Dolibarr and SellYourSaas application
-- [ ] Creation of sellyoursaas.conf with credentials `chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
-- [ ] Create a file `/etc/sellyoursaas-public.conf`
+- [X] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
+- [X] edit `/etc/ssh/sshd_config`
+- [X] reiniciar `systemctl restart sshd`
+- [X] editar `/etc/sudoers`
+- [X] cerear `/etc/sudoers.d/myunixlogin`
+- [X] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin` `chmod o-r /etc/sudoers.d/myunixlogin`
+- [X] Define or redefine the password for root, admin. `passwd root` `passwd admin`
+- [] [Para producción](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#deletion-of-information-files-at-login)
+- [X] Creation of working directories (BOITH)
+- [X] Getting files of Dolibarr and SellYourSaas application
+- [X] Creation of sellyoursaas.conf with credentials `chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
+- [X] Create a file `/etc/sellyoursaas-public.conf`
 
 ### Installing the nfs share
 
-- [ ] `sudo apt install nfs-kernel-server`
-- [ ] Editar `/etc/exports`
-- [ ] `/etc/default/nfs-kernel-server` comment out this line: `RPCMOUNTDOPTS=--manage-gids`, add this instead: `RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"`
-- [ ] `systemctl restart nfs-config  && systemctl restart nfs-kernel-server && rpcinfo -p`
-- [ ] Validar los cambios en NFS
+- [x] `mkdir -p /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam`
+- [X] `chown -R admin. dolibarr_documents`
+- [X] `sudo apt -y install nfs-kernel-server`
+- [X] Editar `/etc/exports`
+- [X] `/etc/default/nfs-kernel-server` comment out this line: `RPCMOUNTDOPTS=--manage-gids`, add this instead: `RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"`
+- [x] `systemctl restart nfs-config  && systemctl restart nfs-kernel-server && rpcinfo -p`
+- [X] Validar los cambios en NFS
 
 ### más
 
@@ -165,9 +166,10 @@ Agregar las llaves de admin, root y las de tu computadora en `/etc/skel/.ssh/aut
 
 ## Creation of working directories (BOTH)
 
-mkdir /mnt/diskbackup/backup
-mkdir /mnt/diskhome/backup; chown admin /mnt/diskhome/backup;
+```bash
+mkdir -p /mnt/{diskbackup,diskhome}/backup && chown admin /mnt/diskhome/backup;
 ln -fs /mnt/diskhome/backup /mnt/diskbackup/backup
+```
 
 ## Creation of working directories (deploy)
 
@@ -225,7 +227,7 @@ ntp git gzip zip zstd memcached ncdu duc iotop acl ufw sudo \
 mariadb-server mariadb-client \
 apache2 apache2-bin lynx \
 php php-cli libapache2-mod-php php-fpm php-gd \
-php-imap php-json php-ldap php-mysqlnd php-curl \
+php-imap php-json php-ldap php-mysql php-curl \
 php-memcached php-imagick php-geoip php-mcrypt \
 php-intl php-xml php-zip php-bz2 php-ssh2 \
 php-mbstring php-soap php-readline php-xmlrpc \
