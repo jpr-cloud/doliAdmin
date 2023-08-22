@@ -1,0 +1,39 @@
+[maxscale]
+threads=1
+
+# Server definitions
+[admin]
+type=server
+address=192.168.1.2
+port=3306
+protocol=MariaDBClient
+
+[deploy]
+type=server
+address=192.168.1.3
+port=3306
+protocol=MariaDBClient
+
+# Monitor for the servers
+
+[Galera-Monitor]
+type=monitor
+module=galeramon
+servers=admin,deploy
+user=maxscaleuser
+password=p123p123
+
+[Read-Write-Service]
+type=service
+router=readwritesplit
+servers=admin,deploy
+user=maxscaleuser
+password=p123p123
+
+
+[Read-Write-Listener]
+type=listener
+service=Read-Write-Service
+protocol=MariaDBClient
+port=4006
+# End of the maxscale.cnf file

@@ -34,32 +34,104 @@
 
 ### más
 
-- [ ] Installation of packages (both)
-- [ ] `apt remove unattended-upgrades`
-- [ ] modify `/etc/login.defs`
-- [ ] modify `/etc/apache2/conf-enabled/security.conf`
+- [X] Installation of packages (both)
+- [X] `apt remove unattended-upgrades`
+- [X] modify `/etc/login.defs`
+- [X] modify `/etc/apache2/conf-enabled/security.conf`
 
 **Apache web server configuration**
 
-- [ ] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
+- [X] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
 
-- [ ] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
-- [ ] Create the directory of the configuration files of the virtual hosts of the instances.
-- [ ] Create the file `/etc/apache2/.htpasswd` con el siguiente comando `htpasswd -cm /etc/apache2/.htpasswd admin`
-- [ ]
-- [ ]
-- [ ]
-- [ ]
-- [ ]
+- [X] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
+- [X] Create the file `/etc/apache2/.htpasswd` con el siguiente comando `htpasswd -cm /etc/apache2/.htpasswd admin`
 
+**Installation of unix watchdog (optional)**
+
+- [X] `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/repair.ksh /usr/sbin/repair`
+- [X] `systemctl enable watchdog && systemctl start watchdog`
 
 ### Installation of fail2ban 
 
-- [ ] create a `/etc/fail2ban/jail.local` file with this content
-- [ ] fail2ban (deploy) all servers
-- [ ] fail2ban (master)
-- [ ] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
-- [ ] Relaunch fail2ban with `systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`  
+- [X] create a `/etc/fail2ban/jail.local` file with this content
+- [X] fail2ban (deploy) all servers
+- [X] fail2ban (master)
+- [X] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
+- [X] create the logfiles 
+- [X] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
+
+**Test spamassassin**
+
+- [X]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
+- [X] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
+
+
+**Installation of Afick**
+
+- [ ] Install afick.pl tool from the debian package found on afick web site. `wget -O afick.deb https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download && dpkg -i afick.deb`
+- [ ] Edit  /etc/afick.conf
+
+### Setup mariadb (galera and MaxScale)
+
+- [X] Agustar el service
+- [X] crear password para root `UPDATE mysql.user SET authentication_string = PASSWORD('p123p123') WHERE User='root'; FLUSH PRIVILEGES;`
+- [X] Create a user sellyoursaas to control databases of user instances
+- [X] Create galera main node
+
+**MAXscale**
+
+- [X] Download `wget https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb`
+- [X] Installing MariaDB MaxScale
+- [X] addin maxscale user
+- [X] configuring `/etc/maxscale.cnf`
+
+### Setup of PHP
+
+- [ ] Setting permissons 
+
+```bash
+chmod -Rv 733 /dev/shm /var/lib/php/sessions
+chmod +t /dev/shm /var/lib/php/sessions
+```
+
+- [ ] Define size of upload and session options
+- [ ] Disable some functions (optionnal)
+- [ ] Add a wrapper PHP for the mail() function
+
+### Setup of logrotate
+
+- [ ] Edit `/etc/logrotate.conf`
+- [ ] Modify the `/etc/logrotate.d/apache2`
+- [ ] Create a file `/etc/logrotate.d/logrotate_admin_log`
+- [ ] Create a file `/etc/logrotate.d/logrotate_sellyoursaas_log`
+
+### Setup of journalctl
+
+### Install certbot (for LetsEncrypt SSL certificates)
+
+- [ ] Edit the file `/etc/systemd/journald.conf` to define the max size for systemd journals.
+
+### Install certbot (for LetsEncrypt SSL certificates)
+
+- [ ] install `snapd apt install snapd -y`
+- [ ] Install certbot `snap install --classic certbot`
+- [ ] Prepare the Certbot command `ln -s /snap/bin/certbot /usr/bin/certbot`
+
+### Installation of Cron tasks
+
+- [ ] user root
+- [ ] user admin
+
+### Installation of Dolibarr framework
+
+- [ ] Create a symbolic link called sellyoursaas `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas`
+- [ ] Create a symbolic link called source into directory myaccount `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr/htdocs /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/source`
+- [ ] Create a symbolic link called main.inc.php into directory myaccount  `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr/htdocs/main.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
+- [ ] Disable default `a2dissite 000-default`
+- [ ] Enable the site `a2ensite admin.jpyrsa.com.mx`
+- [ ] Enable the site `a2ensite myaccount.jpyrsa.com.mx`
+- [ ] Create certificate for admin and myaccount using `certbot --apache`
+- [ ] Restart apache `systemctl restart apache2`
 
 
 ## deploy
@@ -113,9 +185,11 @@
 - [ ] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
 - [ ] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
 
-### Installation of the Apache watchdog (deploy)
+**Installation of unix watchdog (optional)**
 
-- [ ] Installation of the Apache watchdog (deploy)
+- [ ] `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/repair.ksh /usr/sbin/repair`
+- [ ] `systemctl enable watchdog && systemctl start watchdog`
+- [ ] Installation of the instance deployment agent
 
 ### Installation of the instance deployment agent
 
@@ -128,10 +202,20 @@
 - [ ] create a `/etc/fail2ban/jail.local` file with this content
 - [ ] fail2ban (deploy)
 - [ ] fail2ban (deploy) all servers
-- [ ] fail2ban (master)
 - [ ] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
 - [ ] Relaunch fail2ban and check errors into /var/log/fail2ban.log
-- [ ]
+- [X] create the logfiles 
+- [X] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
+
+**Test spamassassin**
+
+- [X]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
+- [X] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
+
+**Installation of Afick**
+
+- [ ] Install afick.pl tool from the debian package found on afick web site. `wget -O afick.deb https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download && dpkg -i afick.deb`
+- [ ] Edit  /etc/afick.conf
 
 ### Setup of Mysql or Mariadb
 
@@ -219,24 +303,37 @@ sudo umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas
 
 ## Installation of packages (both)
 
+soffice
+# https://askubuntu.com/questions/1031921/php-mcrypt-package-missing-in-ubuntu-server-18-04-lts
+# https://www.linuxhelp.com/questions/e-package-php-mcrypt-has-no-installation-candidate-error-on-ubuntu-20-4-1
+
 ```bash
-sudo apt update
- 
 sudo apt install -y \
 ntp git gzip zip zstd memcached ncdu duc iotop acl ufw sudo \
 mariadb-server mariadb-client \
-apache2 apache2-bin lynx \
+apache2 apache2-bin lynx
+
+sudo apt install -y \
 php php-cli libapache2-mod-php php-fpm php-gd \
 php-imap php-json php-ldap php-mysql php-curl \
-php-memcached php-imagick php-geoip php-mcrypt \
+php-memcached php-imagick php-geoip  \
 php-intl php-xml php-zip php-bz2 php-ssh2 \
 php-mbstring php-soap php-readline php-xmlrpc \
-php-pear watchdog cpulimit libapache2-mpm-itk \
+php-pear watchdog cpulimit libapache2-mpm-itk
+
+sudo apt install -y \
 libapache2-mod-apparmor apparmor apparmor-profiles \
 apparmor-utils rkhunter chkrootkit bind9 \
 spamc spamassassin clamdscan clamav-daemon \
-fail2ban soffice libreoffice-common libreoffice-writer \
+fail2ban  libreoffice-common libreoffice-writer \
 mailutils postfix
+
+# php-mcrypt
+sudo apt install -y php php-pear php-dev libmcrypt-dev
+sudo pecl install mcrypt
+printf 'extension=mcrypt.so\n' >> /etc/php/7.4/mods-available/mcrypt.ini
+phpenmod mcrypt
+
 ```
 
 ## Create the directory of the configuration files of the virtual hosts of the instances.
@@ -318,6 +415,14 @@ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/web-dolibar
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/web-dolibarr-rulesbruteforce.conf
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/web-dolibarr-ruleslimitpublic.conf
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/web-dolibarr-rulesregisterinstance.conf
+
+touch /home/admin/wwwroot/dolibarr_documents/dolibarr.log
+touch /var/log/phpsendmail.log
+touch /home/admin/wwwroot/dolibarr_documents/dolibarr_register.log
+touch /var/log/daemon.log
+
+systemctl start fail2ban && systemctl status fail2ban
+
 ```
 
 ### Setup of Mysql or Mariadb
