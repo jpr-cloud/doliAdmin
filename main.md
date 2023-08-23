@@ -136,54 +136,109 @@ chmod +t /dev/shm /var/lib/php/sessions
 
 ## deploy
 
-- [ ] hostname **deploy** (Se asigna en hetzner al crear el host)
-- [ ] /etc/hosts
-- [ ] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
-- [ ] SSH and sudo
+- [X] hostname **deploy** (Se asigna en hetzner al crear el host)
+- [X] /etc/hosts
+- [X] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
+
+## NFS  /mnt/diskhome
+
+- [X] mkdir `/mnt/diskhome`
+- [X] mkdir `/mnt/diskbackup`
+- [X] Leer las instrucciones de como montar el volúmen desde hetzner
+
+
+- [X] SSH and sudo
 - [ ] `adduser myunixlogin`
-- [ ] default shell `ln -fs /bin/bash /usr/bin/sh`
-- [ ] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
-- [ ] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
-- [ ] edit `/etc/ssh/sshd_config`
-- [ ] reiniciar `systemtl restart sshd`
-- [ ] editar `/etc/sudoers`
-- [ ] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin` `chmod o-r /etc/sudoers.d/myunixlogin`
-- [ ] Define or redefine the password for root, admin. `passwd root` `passwd admin`
+- [X] default shell `ln -fs /bin/bash /usr/bin/sh`
+- [X] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
+- [X] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
+- [X] edit `/etc/ssh/sshd_config`
+- [X] reiniciar `systemctl restart sshd`
+- [X] Copiar id_rsa* de main a deploy
+- [X] Agregar el contenido de id_rsa.pub de root y admin en el archivo `authorized_key`s en deploy
+- [X] ¿Te puedes conectar desde admin a deploy usando `ssh admin@192.168.1.3` y ssh `root@192.168.1.3`?
+- [X] editar `/etc/sudoers`
+- [X] Create a file `/etc/sudoers.d/myunixlogin`
+- [X] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin && chmod o-r /etc/sudoers.d/myunixlogin`
+- [X] Define or redefine the password for root, admin. `passwd root` `passwd admin`
 - [ ] [Para producción](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#deletion-of-information-files-at-login)
-- [ ] Modification of `/etc/skel`
-- [ ] Add at the end of **/etc/bash.bashrc**  `alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'`
-- [ ] Creation of working directories (BOTH)
-- [ ] Creation of working directories (deploy)
-- [ ] Getting files of Dolibarr and SellYourSaas application
-- [ ] Creation of sellyoursaas.conf with credentials `chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
-- [ ] Create a file `/etc/sellyoursaas-public.conf`
 
-### NFS
 
-- [ ] Enabling  the nfs share - deploy
+### Modification of `/etc/skel`
+
+- [X] `mkdir /etc/skel/.ssh`
+- [X] crear **authorized_keys_support** `sudo touch /etc/skel/.ssh/authorized_keys_support`
+- [X] `sudo chmod -R go-rwx /etc/skel/.ssh`
+- [X] Agregar las id_rsa.pub de admin y root en `nano /etc/skel/.ssh/authorized_keys_support`
+- [X] `mkdir /etc/skel/.ssh`
+- [X] `printf '[client]\nprotocol=tcp\n' >> /etc/skel/.my.cnf`
+
+- [X] Add at the end of **/etc/bash.bashrc**  `alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'`
+
+### Creation of working directories
+
+- [X] `mkdir /mnt/diskbackup/backup`
+- [X] Create directory `/mnt/diskbackup/backup` usando `mkdir /mnt/diskhome/backup && chown admin /mnt/diskhome/backup && ln -fs /mnt/diskhome/backup /mnt/diskbackup/backup`
+
+- [ ] Create the other directories on the deployment server
+
+```bash
+mkdir /home/jail; mkdir /mnt/diskhome/home;
+
+mkdir /mnt/diskbackup/archives-test; mkdir /mnt/diskbackup/archives-paid
+mkdir -p /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam;
+chown admin.root /mnt/diskbackup/backup /mnt/diskbackup/archives-test /mnt/diskbackup/archives-paid
+ln -fs /mnt/diskhome/home /home/jail/home
+ln -fs /mnt/diskbackup/backup /home/jail/backup
+ln -fs /mnt/diskbackup/archives-test /home/jail/archives-test
+ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
+```
+
+### Getting files of Dolibarr and SellYourSaas application
+
+- [X] **Under the admin account** `cd /home/admin/wwwroot && git clone https://github.com/Dolibarr/dolibarr dolibarr --branch 17.0.1 && chown -R admin.admin /home/admin/wwwroot/dolibarr`
+- [X] **Under the admin account install the sources of SellYourSaas**: `cd /home/admin/wwwroot && git clone https://github.com/dolicloud/sellyoursaas dolibarr_sellyoursaas`
+- [X] Creation of sellyoursaas.conf with credentials `touch /etc/sellyoursaas.conf && chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
+- [X] Create a file `/etc/sellyoursaas-public.conf`
+
+> CUIADO: Se debe de crear la base de datos, 
+> `CREATE USER 'sellyoursaas'@'ip.server.deployment' IDENTIFIED BY 'p123p123';`
+> `GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON nom_de_base_dolibarr_master.* TO 'sellyoursaas'@'%';`
+> `FLUSH PRIVILEGES`;
+
+- [X] Create also an empty directory: `mkdir -p /etc/sellyoursaas.d`
+
+### NFS - Installing the nfs share
+
+- [X] `sudo apt install nfs-common -y`
+- [ ] `sudo mount -t nfs 192.168.1.2:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas`
+- [ ] `umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas`
+- [ ] Add the line to the /etc/fstab file to have automatic reboot mounting`192.168.1.2:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0`
 - [ ] `mount -a`
 
 ### Deploy the public key of master admin on deployment admin account
 
-- [ ] On the deployment servers, copy the public and private key of the master’s ssh admin account to /home/admin/.ssh/id_rsa_sellyoursaa
+- [X] On the deployment servers, copy the public and private key of the master’s ssh admin account to /home/admin/.ssh/id_rsa_sellyoursaa
+- [X] Create and edit `/home/admin/.ssh/config`
 
-### continuamos
+### Installation of system and application components (dep)
 
-- [ ] Installation of packages (both)
-- [ ] `apt remove unattended-upgrades`
-- [ ] modify `/etc/login.defs`
-- [ ] modify `/etc/apache2/conf-enabled/security.conf`
+- [X] Installation of packages (both)
+- [X] Disabling automatic update `sudo apt remove -y unattended-upgrades`
+- [X] modify `/etc/login.defs`
+- [X] modify `/etc/apache2/conf-enabled/security.conf`
 
-**Apache web server configuration**
+## Apache web server configuration
 
-- [ ] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
+- [X] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
+- [X] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
+- [X] Create the directory of the configuration files of the virtual hosts of the instances. `cd /etc/apache2 && mkdir sellyoursaas-available sellyoursaas-online sellyoursaas-offline && ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled`
+- [X] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
+- [X] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
 
-- [ ] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
-- [ ] Create the directory of the configuration files of the virtual hosts of the instances. `cd /etc/apache2 && mkdir sellyoursaas-available sellyoursaas-online sellyoursaas-offline && ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled`
-- [ ] `ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled`
-- [ ] reiniciar apache systemctl `restart apache2`
-- [ ] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
-- [ ] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
+- [X] reiniciar apache `systemctl restart apache2`
+- [X] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
+- [X] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
 
 **Installation of unix watchdog (optional)**
 
@@ -191,11 +246,16 @@ chmod +t /dev/shm /var/lib/php/sessions
 - [ ] `systemctl enable watchdog && systemctl start watchdog`
 - [ ] Installation of the instance deployment agent
 
+### Installation of the Apache watchdog
+
+- [X] [Leer](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#installation-of-the-instance-deployment-agent)
+
 ### Installation of the instance deployment agent
 
-- [ ] Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link b
-- [ ] To use systemd create a file `/etc/systemd/system/remote-server-launcher.service`
-- [ ] Activate the service `systemctl enable remote-server-launcher.service && systemctl start remote-server-launcher.service && systemctl status remote-server-launcher.service && systemctl stop remote-server-launcher.service`
+- [X] Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh /etc/init.d/remote_server_launcher`
+- [X] To use systemd create a file `/etc/systemd/system/remote-server-launcher.service`
+- [ ] Verificar `systemctl daemon-reload && systemctl enable remote_server_launcher && systemctl is-enabled remote_server_launcher && systemctl status remote_server_launcher`
+- [X] Activate the service `systemctl enable remote-server-launcher.service && systemctl start remote-server-launcher.service && systemctl status remote-server-launcher.service && systemctl stop remote-server-launcher.service`
 
 ### Installation of fail2ban
 
