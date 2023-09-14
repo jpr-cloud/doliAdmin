@@ -113,7 +113,7 @@ chmod +t /dev/shm /var/lib/php/sessions
 
 ### Install certbot (for LetsEncrypt SSL certificates)
 
-- [ ] install `snapd apt install snapd -y`
+- [ ] install snapd `apt install snapd -y`
 - [ ] Install certbot `snap install --classic certbot`
 - [ ] Prepare the Certbot command `ln -s /snap/bin/certbot /usr/bin/certbot`
 
@@ -228,6 +228,10 @@ ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 - [X] modify `/etc/login.defs`
 - [X] modify `/etc/apache2/conf-enabled/security.conf`
 
+### DNS On deployment servers
+
+- [ ] Create a file `/etc/bind/a1.jpyrsa.com.mx.hosts`
+
 ## Apache web server configuration
 
 - [X] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
@@ -259,13 +263,87 @@ ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 
 ### Installation of fail2ban
 
-- [ ] create a `/etc/fail2ban/jail.local` file with this content
-- [ ] fail2ban (deploy)
-- [ ] fail2ban (deploy) all servers
-- [ ] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
+- [X] create a `/etc/fail2ban/jail.local` file with this content
+- [X] fail2ban (deploy)
+- [X] fail2ban (deploy) all servers
+- [X] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
 - [ ] Relaunch fail2ban and check errors into /var/log/fail2ban.log
-- [X] create the logfiles 
+- [X] create the logfiles como root `touch /var/log/phpmail.log && touch /var/log/phpsendmail.log && touch /var/log/daemon.log`
+
+- [X] create the logfiles como admin
+`touch /home/admin/wwwroot/dolibarr_documents/dolibarr_register.log && touch /home/admin/wwwroot/dolibarr_documents/dolibarr.log`
+
 - [X] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
+
+### Add a wrapper PHP for the mail() function
+
+echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistmail;
+echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistip;
+echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistfrom;
+echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistcontent;
+
+- [ ] Modify the file php.ini (the one for apache and the one for cli) with:
+- [X] Create the files phpmail.log and phpsendmail.log:
+- [X] Create a directory for blacklist files used by phpsendmail.php
+
+### Setup of logrotate dep
+
+- [X] `root syslog` to `/etc/logrotate.conf`
+- [X] `Modify the /etc/logrotate.d/apache2` rotate 365
+- [X] Create a file /etc/logrotate.d/logrotate_admin_log
+- [X] Create a file /etc/logrotate.d/logrotate_sellyoursaas_log
+
+### Setup of journalctl 2
+
+- [X] Edit the file `/etc/systemd/journald.conf` to define the max size for systemd journals.
+- [ ] restart the service `systemctl start systemd-journald`
+
+### Let¿s encrypt 2
+
+- [ ] Install certbot (for LetsEncrypt SSL certificates) `sudo apt install -y snapd && sudo snap install --classic certbot && sudo ln -fs /snap/bin/certbot /usr/bin/certbot`
+
+#### Create a wildcard SSL certificate for user instances
+
+[how-to-create-let-s-encrypt-wildcard-certificates-with-certbot](https://www.digitalocean.com/community/tutorials/how-to-create-let-s-encrypt-wildcard-certificates-with-certbot)
+
+- [X] En DNS Hetzner, crear el host wildcard *.a1.jpyrsa.com.mx, apuntando al servidor deployment
+
+### Installation of Cron tasks On deployment servers
+
+- [ ] Terminado
+
+# m h  dom mon dow   command
+
+# cron master and deployment root
+
+You must have inside the cron of user root
+
+- [ ] hecho
+```bash
+# 47 2 ** */root/certbot-auto renew --no-self-upgrade > /var/log/letsencrypt/certbot-auto_renew.log 2>&1
+10 0* ** /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >/home/admin/logs/backup_mysql_system.log 2>&1
+00 4 ** */home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >/home/admin/logs/perms.log
+40 15* ** /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >/home/admin/logs/backup_backups.log 2>&1
+00 9 ** */home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > /home/admin/logs/batch_detect_evil_instances.log 2>&1
+# 40 4 4 * * /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm
+```
+
+### Installation of Dolibarr framework
+
+- [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas`
+- [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr/htdocs /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/source`
+- [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr/htdocs/main.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
+- [ ] Create a file `/home/admin/wwwroot/dolibarr/htdocs/conf/conf.php`
+
+### Installation of Geoip2
+
+- [ ] `mkdir /home/admin/tools/maxmind/ -p && cd /home/admin/tools/maxmind/`
+- [ ] `wget https://cdn.jsdelivr.net/npm/geolite2-country@1.0.2/GeoLite2-Country.mmdb.gz`
+- [ ] `gunzip GeoLite2-Country.mmdb.gz`
+- [ ] `chmod -R o-w /home/admin/tools/maxmind`
+
+### Installation or update of plugin SellYourSaas
+
 
 **Test spamassassin**
 
