@@ -1,0 +1,29 @@
+;
+; BIND data file for local loopback interface
+;
+$TTL    604800
+@       IN      SOA     ns1withx.jpyrsa.com.mx. admin.jpyrsa.com.mx. (
+                        2101011200       ; serial
+                        600              ; refresh = 10 minutes
+                        300              ; update retry = 5 minutes
+                        604800           ; expiry = 1 week
+                        660)              ; negative ttl
+;
+@       IN      NS      server.jpyrsa.com.mx.
+@       IN      A       116.203.80.120
+
+@       IN      NS      ns1withx.jpyrsa.com.mx.
+@       IN      A       116.203.80.120
+ns1     IN      A       116.203.80.120
+
+; entry for letsencrypt.
+_acme-challenge IN	  TXT      "a-value-that-will-be-filled-later-for-lets-encrypt"
+
+
+; this entry must always exists.
+supervision A 116.203.80.120
+
+
+; other sub-domain records
+; here will be added entry like this one
+; client1  A   116.203.80.120

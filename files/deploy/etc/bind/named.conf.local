@@ -15,3 +15,4 @@ zone "a1.jpyrsa.com.mx" {
 zone "80.203.116.in-addr.arpa" IN {
         type master;
         file "/etc/bind/reverse.a1.jpyrsa.com.mx";
+};
