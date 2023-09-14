@@ -2,6 +2,7 @@
 ; BIND data file for local loopback interface
 ;
 $TTL    604800
+
 @       IN      SOA     ns1.jpyrsa.com.mx.  admin.jpyrsa.com.mx. (
                         2101011200       ; serial
                         600              ; refresh = 10 minutes
