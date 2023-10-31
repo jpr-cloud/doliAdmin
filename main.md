@@ -2,68 +2,68 @@
 
 ## master
 
-- [x] hostname del **main** (Se asigna en hetzner al crear el host)
-- [X] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
-- [X] /etc/hosts (revisar después de la re instalación)
-- [X] SSH and sudo
-- [X] `adduser myunixlogin`
-- [X] default shell `ln -fs /bin/bash /usr/bin/sh`
-- [X] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
-- [X] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
-- [X] edit `/etc/ssh/sshd_config`
-- [X] reiniciar `systemctl restart sshd`
-- [X] editar `/etc/sudoers`
-- [X] cerear `/etc/sudoers.d/myunixlogin`
-- [X] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin` `chmod o-r /etc/sudoers.d/myunixlogin`
-- [X] Define or redefine the password for root, admin. `passwd root` `passwd admin`
+- [X] hostname del **master** (Se asigna en hetzner al crear el host)
+- [X] Asígnación del nombre **master.j-cloud.mx** en DNS Hetzner
+- [ ] /etc/hosts (revisar después de la re instalación)
+- [ ] SSH and sudo
+- [ ] `adduser myunixlogin`
+- [ ] default shell `ln -fs /bin/bash /usr/bin/sh`
+- [ ] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
+- [ ] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
+- [ ] edit `/etc/ssh/sshd_config`
+- [ ] reiniciar `systemctl restart sshd`
+- [ ] editar `/etc/sudoers`
+- [ ] cerear `/etc/sudoers.d/myunixlogin`
+- [ ] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin` `chmod o-r /etc/sudoers.d/myunixlogin`
+- [ ] Define or redefine the password for root, admin. `passwd root` `passwd admin`
 - [] [Para producción](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#deletion-of-information-files-at-login)
-- [X] Creation of working directories (BOITH)
-- [X] Getting files of Dolibarr and SellYourSaas application
-- [X] Creation of sellyoursaas.conf with credentials `chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
-- [X] Create a file `/etc/sellyoursaas-public.conf`
+- [ ] Creation of working directories (BOITH)
+- [ ] Getting files of Dolibarr and SellYourSaas application
+- [ ] Creation of sellyoursaas.conf with credentials `chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
+- [ ] Create a file `/etc/sellyoursaas-public.conf`
 
 ### Installing the nfs share
 
-- [x] `mkdir -p /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam`
-- [X] `chown -R admin. dolibarr_documents`
-- [X] `sudo apt -y install nfs-kernel-server`
-- [X] Editar `/etc/exports`
-- [X] `/etc/default/nfs-kernel-server` comment out this line: `RPCMOUNTDOPTS=--manage-gids`, add this instead: `RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"`
-- [x] `systemctl restart nfs-config  && systemctl restart nfs-kernel-server && rpcinfo -p`
-- [X] Validar los cambios en NFS
+- [ ] `mkdir -p /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam`
+- [ ] `chown -R admin. dolibarr_documents`
+- [ ] `sudo apt -y install nfs-kernel-server`
+- [ ] Editar `/etc/exports`
+- [ ] `/etc/default/nfs-kernel-server` comment out this line: `RPCMOUNTDOPTS=--manage-gids`, add this instead: `RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"`
+- [ ] `systemctl restart nfs-config  && systemctl restart nfs-kernel-server && rpcinfo -p`
+- [ ] Validar los cambios en NFS
 
 ### más
 
-- [X] Installation of packages (both)
-- [X] `apt remove unattended-upgrades`
-- [X] modify `/etc/login.defs`
-- [X] modify `/etc/apache2/conf-enabled/security.conf`
+- [ ] Installation of packages (both)
+- [ ] `apt remove unattended-upgrades`
+- [ ] modify `/etc/login.defs`
+- [ ] modify `/etc/apache2/conf-enabled/security.conf`
 
 **Apache web server configuration**
 
-- [X] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
+- [ ] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
 
-- [X] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
-- [X] Create the file `/etc/apache2/.htpasswd` con el siguiente comando `htpasswd -cm /etc/apache2/.htpasswd admin`
+- [ ] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
+- [ ] Create the file `/etc/apache2/.htpasswd` con el siguiente comando `htpasswd -cm /etc/apache2/.htpasswd admin`
 
 **Installation of unix watchdog (optional)**
 
-- [X] `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/repair.ksh /usr/sbin/repair`
-- [X] `systemctl enable watchdog && systemctl start watchdog`
+- [ ] `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/repair.ksh /usr/sbin/repair`
+- [ ] `systemctl enable watchdog && systemctl start watchdog`
 
 ### Installation of fail2ban 
 
-- [X] create a `/etc/fail2ban/jail.local` file with this content
-- [X] fail2ban (deploy) all servers
-- [X] fail2ban (master)
-- [X] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
-- [X] create the logfiles 
-- [X] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
+- [ ] create a `/etc/fail2ban/jail.local` file with this content
+- [ ] fail2ban (deploy) all servers
+- [ ] fail2ban (master)
+- [ ] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
+- [ ] create the logfiles 
+- [ ] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
 
 **Test spamassassin**
 
-- [X]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
-- [X] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
+- [ ]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
+- [ ] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
 
 
 **Installation of Afick**
@@ -73,17 +73,17 @@
 
 ### Setup mariadb (galera and MaxScale)
 
-- [X] Agustar el service
-- [X] crear password para root `UPDATE mysql.user SET authentication_string = PASSWORD('p123p123') WHERE User='root'; FLUSH PRIVILEGES;`
-- [X] Create a user sellyoursaas to control databases of user instances
-- [X] Create galera main node
+- [ ] Agustar el service
+- [ ] crear password para root `UPDATE mysql.user SET authentication_string = PASSWORD('p123p123') WHERE User='root'; FLUSH PRIVILEGES;`
+- [ ] Create a user sellyoursaas to control databases of user instances
+- [ ] Create galera main node
 
 **MAXscale**
 
-- [X] Download `wget https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb`
-- [X] Installing MariaDB MaxScale
-- [X] addin maxscale user
-- [X] configuring `/etc/maxscale.cnf`
+- [ ] Download `wget https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb`
+- [ ] Installing MariaDB MaxScale
+- [ ] addin maxscale user
+- [ ] configuring `/etc/maxscale.cnf`
 
 ### Setup of PHP
 
@@ -126,59 +126,59 @@ chmod +t /dev/shm /var/lib/php/sessions
 
 - [ ] Create a symbolic link called sellyoursaas `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas`
 - [ ] Create a symbolic link called source into directory myaccount `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr/htdocs /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/source`
-- [ ] Create a symbolic link called main.inc.php into directory myaccount  `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr/htdocs/main.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
+- [ ] Create a symbolic link called master.inc.php into directory myaccount  `sudo -u admin ln -fs /home/admin/wwwroot/dolibarr/htdocs/master.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
 - [ ] Disable default `a2dissite 000-default`
-- [ ] Enable the site `a2ensite admin.jpyrsa.com.mx`
-- [ ] Enable the site `a2ensite myaccount.jpyrsa.com.mx`
+- [ ] Enable the site `a2ensite admin.j-cloud.mx`
+- [ ] Enable the site `a2ensite myaccount.j-cloud.mx`
 - [ ] Create certificate for admin and myaccount using `certbot --apache`
 - [ ] Restart apache `systemctl restart apache2`
 
 
 ## deploy
 
-- [X] hostname **deploy** (Se asigna en hetzner al crear el host)
-- [X] /etc/hosts
-- [X] Asígnación del nombre main.jpyrsa.com.mx en DNS Hetzner
+- [ ] hostname **deploy** (Se asigna en hetzner al crear el host)
+- [ ] /etc/hosts
+- [ ] Asígnación del nombre master.j-cloud.mx en DNS Hetzner
 
-## NFS  /mnt/diskhome
+### NFS  /mnt/diskhome
 
-- [X] mkdir `/mnt/diskhome`
-- [X] mkdir `/mnt/diskbackup`
-- [X] Leer las instrucciones de como montar el volúmen desde hetzner
+- [ ] mkdir `/mnt/diskhome`
+- [ ] mkdir `/mnt/diskbackup`
+- [ ] Leer las instrucciones de como montar el volúmen desde hetzner
 
 
-- [X] SSH and sudo
+- [ ] SSH and sudo
 - [ ] `adduser myunixlogin`
-- [X] default shell `ln -fs /bin/bash /usr/bin/sh`
-- [X] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
-- [X] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
-- [X] edit `/etc/ssh/sshd_config`
-- [X] reiniciar `systemctl restart sshd`
-- [X] Copiar id_rsa* de main a deploy
-- [X] Agregar el contenido de id_rsa.pub de root y admin en el archivo `authorized_key`s en deploy
-- [X] ¿Te puedes conectar desde admin a deploy usando `ssh admin@192.168.1.3` y ssh `root@192.168.1.3`?
-- [X] editar `/etc/sudoers`
-- [X] Create a file `/etc/sudoers.d/myunixlogin`
-- [X] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin && chmod o-r /etc/sudoers.d/myunixlogin`
-- [X] Define or redefine the password for root, admin. `passwd root` `passwd admin`
+- [ ] default shell `ln -fs /bin/bash /usr/bin/sh`
+- [ ] Fix permission on `/etc/ssh/sshd_config` `chmod go-rw /etc/ssh/sshd_config`
+- [ ] create `/etc/ssh/sshd_config.d/sellyoursaas.conf`
+- [ ] edit `/etc/ssh/sshd_config`
+- [ ] reiniciar `systemctl restart sshd`
+- [ ] Copiar id_rsa* de main a deploy
+- [ ] Agregar el contenido de id_rsa.pub de root y admin en el archivo `authorized_key`s en deploy
+- [ ] ¿Te puedes conectar desde admin a deploy usando `ssh admin@192.168.1.3` y ssh `root@192.168.1.3`?
+- [ ] editar `/etc/sudoers`
+- [ ] Create a file `/etc/sudoers.d/myunixlogin`
+- [ ] establecer permisos `chmod a-w /etc/sudoers.d/myunixlogin && chmod o-r /etc/sudoers.d/myunixlogin`
+- [ ] Define or redefine the password for root, admin. `passwd root` `passwd admin`
 - [ ] [Para producción](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#deletion-of-information-files-at-login)
 
 
 ### Modification of `/etc/skel`
 
-- [X] `mkdir /etc/skel/.ssh`
-- [X] crear **authorized_keys_support** `sudo touch /etc/skel/.ssh/authorized_keys_support`
-- [X] `sudo chmod -R go-rwx /etc/skel/.ssh`
-- [X] Agregar las id_rsa.pub de admin y root en `nano /etc/skel/.ssh/authorized_keys_support`
-- [X] `mkdir /etc/skel/.ssh`
-- [X] `printf '[client]\nprotocol=tcp\n' >> /etc/skel/.my.cnf`
+- [ ] `mkdir /etc/skel/.ssh`
+- [ ] crear **authorized_keys_support** `sudo touch /etc/skel/.ssh/authorized_keys_support`
+- [ ] `sudo chmod -R go-rwx /etc/skel/.ssh`
+- [ ] Agregar las id_rsa.pub de admin y root en `nano /etc/skel/.ssh/authorized_keys_support`
+- [ ] `mkdir /etc/skel/.ssh`
+- [ ] `printf '[client]\nprotocol=tcp\n' >> /etc/skel/.my.cnf`
 
-- [X] Add at the end of **/etc/bash.bashrc**  `alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'`
+- [ ] Add at the end of **/etc/bash.bashrc**  `alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'`
 
 ### Creation of working directories
 
-- [X] `mkdir /mnt/diskbackup/backup`
-- [X] Create directory `/mnt/diskbackup/backup` usando `mkdir /mnt/diskhome/backup && chown admin /mnt/diskhome/backup && ln -fs /mnt/diskhome/backup /mnt/diskbackup/backup`
+- [ ] `mkdir /mnt/diskbackup/backup`
+- [ ] Create directory `/mnt/diskbackup/backup` usando `mkdir /mnt/diskhome/backup && chown admin /mnt/diskhome/backup && ln -fs /mnt/diskhome/backup /mnt/diskbackup/backup`
 
 - [ ] Create the other directories on the deployment server
 
@@ -196,21 +196,21 @@ ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 
 ### Getting files of Dolibarr and SellYourSaas application
 
-- [X] **Under the admin account** `cd /home/admin/wwwroot && git clone https://github.com/Dolibarr/dolibarr dolibarr --branch 17.0.1 && chown -R admin.admin /home/admin/wwwroot/dolibarr`
-- [X] **Under the admin account install the sources of SellYourSaas**: `cd /home/admin/wwwroot && git clone https://github.com/dolicloud/sellyoursaas dolibarr_sellyoursaas`
-- [X] Creation of sellyoursaas.conf with credentials `touch /etc/sellyoursaas.conf && chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
-- [X] Create a file `/etc/sellyoursaas-public.conf`
+- [ ] **Under the admin account** `cd /home/admin/wwwroot && git clone https://github.com/Dolibarr/dolibarr dolibarr --branch 17.0.1 && chown -R admin.admin /home/admin/wwwroot/dolibarr`
+- [ ] **Under the admin account install the sources of SellYourSaas**: `cd /home/admin/wwwroot && git clone https://github.com/dolicloud/sellyoursaas dolibarr_sellyoursaas`
+- [ ] Creation of sellyoursaas.conf with credentials `touch /etc/sellyoursaas.conf && chown root.admin /etc/sellyoursaas.conf && chmod g-wx /etc/sellyoursaas.conf&& chmod o-rwx /etc/sellyoursaas.conf`
+- [ ] Create a file `/etc/sellyoursaas-public.conf`
 
 > CUIADO: Se debe de crear la base de datos, 
 > `CREATE USER 'sellyoursaas'@'ip.server.deployment' IDENTIFIED BY 'p123p123';`
 > `GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON nom_de_base_dolibarr_master.* TO 'sellyoursaas'@'%';`
 > `FLUSH PRIVILEGES`;
 
-- [X] Create also an empty directory: `mkdir -p /etc/sellyoursaas.d`
+- [ ] Create also an empty directory: `mkdir -p /etc/sellyoursaas.d`
 
 ### NFS - Installing the nfs share
 
-- [X] `sudo apt install nfs-common -y`
+- [ ] `sudo apt install nfs-common -y`
 - [ ] `sudo mount -t nfs 192.168.1.2:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas`
 - [ ] `umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas`
 - [ ] Add the line to the /etc/fstab file to have automatic reboot mounting`192.168.1.2:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0`
@@ -218,31 +218,31 @@ ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 
 ### Deploy the public key of master admin on deployment admin account
 
-- [X] On the deployment servers, copy the public and private key of the master’s ssh admin account to /home/admin/.ssh/id_rsa_sellyoursaa
-- [X] Create and edit `/home/admin/.ssh/config`
+- [ ] On the deployment servers, copy the public and private key of the master’s ssh admin account to /home/admin/.ssh/id_rsa_sellyoursaa
+- [ ] Create and edit `/home/admin/.ssh/config`
 
 ### Installation of system and application components (dep)
 
-- [X] Installation of packages (both)
-- [X] Disabling automatic update `sudo apt remove -y unattended-upgrades`
-- [X] modify `/etc/login.defs`
-- [X] modify `/etc/apache2/conf-enabled/security.conf`
+- [ ] Installation of packages (both)
+- [ ] Disabling automatic update `sudo apt remove -y unattended-upgrades`
+- [ ] modify `/etc/login.defs`
+- [ ] modify `/etc/apache2/conf-enabled/security.conf`
 
 ### DNS On deployment servers
 
-- [ ] Create a file `/etc/bind/a1.jpyrsa.com.mx.hosts`
+- [ ] Create a file `/etc/bind/a1.j-cloud.mx.hosts`
 
-## Apache web server configuration
+### Apache web server configuration
 
-- [X] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
-- [X] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
-- [X] Create the directory of the configuration files of the virtual hosts of the instances. `cd /etc/apache2 && mkdir sellyoursaas-available sellyoursaas-online sellyoursaas-offline && ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled`
-- [X] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
-- [X] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
+- [ ] habilitar los módulos `a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.4`
+- [ ] Enable apache configurations to work with MPM_PREFORK and MPM_ITK: `a2enconf charset localized-error-pages other-vhosts-access-log security`
+- [ ] Create the directory of the configuration files of the virtual hosts of the instances. `cd /etc/apache2 && mkdir sellyoursaas-available sellyoursaas-online sellyoursaas-offline && ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled`
+- [ ] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
+- [ ] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
 
-- [X] reiniciar apache `systemctl restart apache2`
-- [X] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
-- [X] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
+- [ ] reiniciar apache `systemctl restart apache2`
+- [ ] Add the directive to take into account the directory for the virtual hosts of the user instances in the config `/etc/apache2/apache2.conf`
+- [ ] Add directives to define the default error log in `/etc/apache2/conf-enabled/other-vhosts-access-log.conf`
 
 **Installation of unix watchdog (optional)**
 
@@ -252,28 +252,28 @@ ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 
 ### Installation of the Apache watchdog
 
-- [X] [Leer](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#installation-of-the-instance-deployment-agent)
+- [ ] [Leer](https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#installation-of-the-instance-deployment-agent)
 
 ### Installation of the instance deployment agent
 
-- [X] Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh /etc/init.d/remote_server_launcher`
-- [X] To use systemd create a file `/etc/systemd/system/remote-server-launcher.service`
+- [ ] Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh /etc/init.d/remote_server_launcher`
+- [ ] To use systemd create a file `/etc/systemd/system/remote-server-launcher.service`
 - [ ] Verificar `systemctl daemon-reload && systemctl enable remote_server_launcher && systemctl is-enabled remote_server_launcher && systemctl status remote_server_launcher`
-- [X] Activate the service `systemctl enable remote-server-launcher.service && systemctl start remote-server-launcher.service && systemctl status remote-server-launcher.service && systemctl stop remote-server-launcher.service`
+- [ ] Activate the service `systemctl enable remote-server-launcher.service && systemctl start remote-server-launcher.service && systemctl status remote-server-launcher.service && systemctl stop remote-server-launcher.service`
 
 ### Installation of fail2ban
 
-- [X] create a `/etc/fail2ban/jail.local` file with this content
-- [X] fail2ban (deploy)
-- [X] fail2ban (deploy) all servers
-- [X] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
+- [ ] create a `/etc/fail2ban/jail.local` file with this content
+- [ ] fail2ban (deploy)
+- [ ] fail2ban (deploy) all servers
+- [ ] `grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /'|sort|uniq|xargs touch`
 - [ ] Relaunch fail2ban and check errors into /var/log/fail2ban.log
-- [X] create the logfiles como root `touch /var/log/phpmail.log && touch /var/log/phpsendmail.log && touch /var/log/daemon.log`
+- [ ] create the logfiles como root `touch /var/log/phpmail.log && touch /var/log/phpsendmail.log && touch /var/log/daemon.log`
 
-- [X] create the logfiles como admin
+- [ ] create the logfiles como admin
 `touch /home/admin/wwwroot/dolibarr_documents/dolibarr_register.log && touch /home/admin/wwwroot/dolibarr_documents/dolibarr.log`
 
-- [X] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
+- [ ] Relaunch fail2ban with `systemctl start fail2ban && systemctl status fail2ban` and check errors into `/var/log/fail2ban.log`
 
 ### Add a wrapper PHP for the mail() function
 
@@ -283,19 +283,19 @@ echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistfrom;
 echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistcontent;
 
 - [ ] Modify the file php.ini (the one for apache and the one for cli) with:
-- [X] Create the files phpmail.log and phpsendmail.log:
-- [X] Create a directory for blacklist files used by phpsendmail.php
+- [ ] Create the files phpmail.log and phpsendmail.log:
+- [ ] Create a directory for blacklist files used by phpsendmail.php
 
 ### Setup of logrotate dep
 
-- [X] `root syslog` to `/etc/logrotate.conf`
-- [X] `Modify the /etc/logrotate.d/apache2` rotate 365
-- [X] Create a file /etc/logrotate.d/logrotate_admin_log
-- [X] Create a file /etc/logrotate.d/logrotate_sellyoursaas_log
+- [ ] `root syslog` to `/etc/logrotate.conf`
+- [ ] `Modify the /etc/logrotate.d/apache2` rotate 365
+- [ ] Create a file /etc/logrotate.d/logrotate_admin_log
+- [ ] Create a file /etc/logrotate.d/logrotate_sellyoursaas_log
 
 ### Setup of journalctl 2
 
-- [X] Edit the file `/etc/systemd/journald.conf` to define the max size for systemd journals.
+- [ ] Edit the file `/etc/systemd/journald.conf` to define the max size for systemd journals.
 - [ ] restart the service `systemctl start systemd-journald`
 
 ### Let¿s encrypt 2
@@ -306,15 +306,13 @@ echo >> /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistconten
 
 [how-to-create-let-s-encrypt-wildcard-certificates-with-certbot](https://www.digitalocean.com/community/tutorials/how-to-create-let-s-encrypt-wildcard-certificates-with-certbot)
 
-- [X] En DNS Hetzner, crear el host wildcard *.a1.jpyrsa.com.mx, apuntando al servidor deployment
+- [ ] En DNS Hetzner, crear el host wildcard *.a1.j-cloud.mx, apuntando al servidor deployment
 
 ### Installation of Cron tasks On deployment servers
 
 - [ ] Terminado
 
-# m h  dom mon dow   command
-
-# cron master and deployment root
+## cron master and deployment root
 
 You must have inside the cron of user root
 
@@ -332,7 +330,7 @@ You must have inside the cron of user root
 
 - [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas`
 - [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr/htdocs /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/source`
-- [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr/htdocs/main.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
+- [ ] Comop admin `ln -fs /home/admin/wwwroot/dolibarr/htdocs/master.inc.php /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount`
 - [ ] Create a file `/home/admin/wwwroot/dolibarr/htdocs/conf/conf.php`
 
 ### Installation of Geoip2
@@ -347,8 +345,8 @@ You must have inside the cron of user root
 
 **Test spamassassin**
 
-- [X]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
-- [X] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
+- [ ]  (create a file /tmp/testspam)[https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-spamassassin]
+- [ ] (Test and setup of ClamAV) [https://github.com/DoliCloud/SellYourSaas/blob/master/doc/Documentation%20SellYourSaas%20-%20Master%20and%20Deployment%20Servers%20-%20EN.asciidoc#test-and-setup-of-clamav]
 
 **Installation of Afick**
 
@@ -361,10 +359,9 @@ TODO
 
 =============================
 
+## Configuraciones
 
-# Configuraciones
-
-## SSH and sudo
+### SSH and sudo
 
 ```bash
 groupadd admin; useradd -m -s /usr/bin/bash -g admin admin;
@@ -376,7 +373,7 @@ mkdir /home/admin/backup/mysql; chown admin.admin /home/admin/backup/mysql;
 mkdir /home/admin/wwwroot; chown admin.admin /home/admin/wwwroot
 ```
 
-## Modification of `/etc/skel`
+### Modification of `/etc/skel`
 
 ```bash
 sudo mkdir /etc/skel/.ssh
@@ -386,14 +383,14 @@ sudo chmod -R go-rwx /etc/skel/.ssh
 
 Agregar las llaves de admin, root y las de tu computadora en `/etc/skel/.ssh/authorized_keys_support`
 
-## Creation of working directories (BOTH)
+### Creation of working directories (BOTH)
 
 ```bash
 mkdir -p /mnt/{diskbackup,diskhome}/backup && chown admin /mnt/diskhome/backup;
 ln -fs /mnt/diskhome/backup /mnt/diskbackup/backup
 ```
 
-## Creation of working directories (deploy)
+### Creation of working directories (deploy)
 
 ```bash
 mkdir /home/jail; mkdir /mnt/diskhome/home;
@@ -406,7 +403,7 @@ ln -fs /mnt/diskbackup/archives-test /home/jail/archives-test
 ln -fs /mnt/diskbackup/archives-paid /home/jail/archives-paid
 ```
 
-## Getting files of Dolibarr and SellYourSaas application
+### Getting files of Dolibarr and SellYourSaas application
 
 ```bash
 cd /home/admin/wwwroot
@@ -417,9 +414,9 @@ cd /home/admin/wwwroot
 git clone https://github.com/dolicloud/sellyoursaas dolibarr_sellyoursaas
 ```
 
-## NFS Shares
+### NFS Shares
 
-### NFS Shares - main
+#### NFS Shares - main
 
 Validar los cambios
 
@@ -431,7 +428,7 @@ systemctl enable nfs-kernel-server && systemctl restart nfs-kernel-server && sys
 exportfs
 ```
 
-### Enabling  the nfs share - deploy
+#### Enabling  the nfs share - deploy
 
 ```bash
 sudo apt install nfs-common
@@ -439,7 +436,7 @@ sudo mount -t nfs 192.168.1.2:/home/admin/wwwroot/dolibarr_documents/sellyoursaa
 sudo umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas
 ```
 
-## Installation of packages (both)
+### Installation of packages (both)
 
 soffice
 # https://askubuntu.com/questions/1031921/php-mcrypt-package-missing-in-ubuntu-server-18-04-lts
@@ -474,13 +471,13 @@ phpenmod mcrypt
 
 ```
 
-## Create the directory of the configuration files of the virtual hosts of the instances.
+### Create the directory of the configuration files of the virtual hosts of the instances.
 
 cd /etc/apache2
 mkdir sellyoursaas-available sellyoursaas-online sellyoursaas-offline
 ln -fs /etc/apache2/sellyoursaas-online /etc/apache2/sellyoursaas-enabled
 
-## Installation and activation of the apache watchdogs provided in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/`
+### Installation and activation of the apache watchdogs provided in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/`
 
 
 ```bash
@@ -507,7 +504,7 @@ systemctl is-enabled smtp_watchdog_launcher1;
 systemctl status smtp_watchdog_launcher1;
 ```
 
-## Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link b
+### Agent installation and activation in `/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh` by creating a link b
 
 ```bash
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh /etc/init.d/remote_server_launcher
@@ -517,7 +514,7 @@ systemctl is-enabled remote_server_launcher
 systemctl status remote_server_launcher
 ```
 
-## fail2ban (deploy)
+### fail2ban (deploy)
 
 ```bash
 cd /etc/fail2ban/filter.d
@@ -533,7 +530,7 @@ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d/web-dolib
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d/web-dolibarr-rulesregisterinstance.conf
 ```
 
-## fail2ban (deploy) all servers
+### fail2ban (deploy) all servers
 
 ```bash
 cd /etc/fail2ban/jail.d
@@ -545,7 +542,7 @@ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/email-dolib
 ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/web-accesslog-limit403.conf
 ```
 
-## fail2ban (master)
+### fail2ban (master)
 
 ```bash
 cd /etc/fail2ban/jail.d
@@ -563,7 +560,7 @@ systemctl start fail2ban && systemctl status fail2ban
 
 ```
 
-### Setup of Mysql or Mariadb
+#### Setup of Mysql or Mariadb
 
 TODO
 
