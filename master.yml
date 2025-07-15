@@ -19,6 +19,8 @@
 
     domain: "j-cloud.com.mx"
     ServerName: "master.{{ domain }}"
+    AdminServerName: "admin.{{ domain }}"
+    MyAccountServerName: "myaccount.{{ domain }}"
     subdomain: "withX"
     emailfrom: "soporte@jpyrsa.mx"
     emailsupervision: "soporte@jpyrsa.mx"
@@ -126,6 +128,10 @@
         block: |
           vm.vfs_cache_pressure=50
         marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes" 
+    - name: Crear grupo admin
+      group:
+        name: admin
+        state: present
     - name: Agregando al usuario "{{ user_login }}"
       user:
         name: "{{ user_login }}"
@@ -487,33 +493,45 @@
         owner: root
         group: '{{ superadmin }}'
         mode: '0730'
-    - name: Creando el directorio /etc/sellyoursaas.conf
+    - name: Creando el /etc/sellyoursaas-public.conf
+      copy:
+        dest: "/etc/sellyoursaas-public.conf"
+        content: |
+          # File /etc/sellyoursaas-public.conf
+
+          # Options for antispam system
+          maxemailperday=50
+          maxemailperdaypaid=500
+
+          # Option to use a different path for spam (for public script)
+          #pathtospamdir=/tmp/spam
+        owner: root
+        group: '{{ superadmin }}'
+        mode: '0730'
+    - name: Creando el directorio /etc/sellyoursaas.d
       ansible.builtin.file:
-        path: /etc/sellyoursaas.conf
+        path: /etc/sellyoursaas.d
         state: directory
 
 ## Habilitando los módulos de Apache
     - name: Habilitando los módulos de Apache
       ansible.builtin.command:
-        cmd: a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.0|php7.2|php7.4|php8.1|php8.2
-      args:
-        warn: false 
+        cmd: a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork
+      failed_when: false
 ## Deshabilitando los módulos de Apache que no son necesarios
     - name: Deshabilitando los módulos de Apache que no son necesarios
       ansible.builtin.command:
         cmd: a2dismod mcrypt auth_digest authn_anon asis suexec userdir usertrack authn_dbd dbd ident mime_magic speling
-      args:
-        warn: false 
+      failed_when: false
 ## Habilitando las configuraciones de Apache para que funcionen con MPM_PERFORK y MPM_ITK
     - name: Habilitando las configuraciones de Apache para que funcionen con MPM_PERFORK y MPM_ITK
       ansible.builtin.command:
-        cmd: a2enconf charset localized-error-pages other-vhosts-access-log security
-      args:
-        warn: false 
-## Creación del virtual Host de Apache
-    - name: Creando el Virtual Host de Apache /etc/apache2/sites-available/{{ ServerName }}.conf
+        cmd: a2enconf charset localized-error-pages other-vhosts-access-log security 
+      failed_when: false
+## Creación del virtual Host de Apache {{ AdminServerName }}.conf
+    - name: Creando el Virtual Host de Apache /etc/apache2/sites-available/{{ AdminServerName }}.conf
       copy:
-        dest: "/etc/apache2/sites-available/{{ ServerName }}.conf"
+        dest: "/etc/apache2/sites-available/{{ AdminServerName }}.conf"
         content: |
           ##########################
           # Admin Dolibarr Master
@@ -539,10 +557,10 @@
             MaxKeepAliveRequests 100
 
             <Directory /home/admin/wwwroot/dolibarr/htdocs/>
-              AuthType Basic
-              AuthName "Authenticate to backoffice"
-              AuthUserFile /etc/apache2/.htpasswd
-              Require valid-user
+              #AuthType Basic
+              #AuthName "Authenticate to backoffice"
+              #AuthUserFile /etc/apache2/.htpasswd
+              #Require valid-user
               # Or if you prefer restrict to some ip, you can add lines "Require ip x.y.z.w" into a .conf file into this directory:
               IncludeOptional /etc/sellyoursaas.d/*-allowed-ip.conf
             </Directory>
@@ -601,14 +619,89 @@
             ExpiresByType text/javascript A2592000
             ExpiresByType application/x-javascript A2592000
             ExpiresByType application/javascript A2592000
+          </VirtualHost>
         owner: root
         group: root
         mode: '0644'
-    - name: Habilitando el Virtual Host de Apache
+    - name: Habilitando el Virtual Host de Apache {{ AdminServerName }}.conf
       ansible.builtin.command:
-        cmd: a2ensite {{ ServerName }}.conf
-      args:
-        warn: false
+        cmd: a2ensite {{ AdminServerName }}.conf
+      failed_when: false
+    - name: Creando el Virtual Host de Apache /etc/apache2/sites-available/{{ MyAccountServerName }}.conf
+      copy:
+        dest: "/etc/apache2/sites-available/{{ MyAccountServerName }}.conf"
+        content: |
+          #########################
+          # MyAccount Master
+          #########################
+
+          <VirtualHost *:80>
+            #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
+            #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
+            #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f postmaster@mysaasdomainname.com"
+            php_admin_value open_basedir /tmp/:/home/admin/wwwroot/:/usr/share/GeoIP:/home/admin/tools/
+
+            UseCanonicalName On
+            ServerName   {{ MyAccountServerName }}
+            ErrorLog     /home/admin/logs/{{ domain }}_myaccount_error_log
+            CustomLog    /home/admin/logs/{{ domain }}_myaccount_access_log combined
+
+            DocumentRoot /home/admin/wwwroot/dolibarr_sellyoursaas/myaccount
+
+            # To access files of myaccount
+            <Directory /home/admin/wwwroot/dolibarr_sellyoursaas/myaccount>
+            AllowOverride FileInfo Options
+            Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+            Require all granted
+            </Directory>
+
+            # To access images
+            <Directory /home/admin/wwwroot/dolibarr_documents>
+            AllowOverride FileInfo Options
+            Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+            Require all granted
+            </Directory>
+
+            AddOutputFilterByType DEFLATE text/html text/plain text/xml
+            AddDefaultCharset utf-8
+
+            #ExpiresActive On
+            #ExpiresByType image/x-icon A2592000
+            #ExpiresByType image/gif A2592000
+            #ExpiresByType image/png A2592000
+            #ExpiresByType image/jpeg A2592000
+            #ExpiresByType text/css A2592000
+            #ExpiresByType text/javascript A2592000
+            #ExpiresByType application/x-javascript A2592000
+            #ExpiresByType application/javascript A2592000
+
+          #RewriteEngine On
+          #RewriteRule !^/maintenance.php https://%{SERVER_NAME}/maintenance.php?instance=myaccount [R,L]
+
+          RewriteEngine on
+          RewriteCond %{SERVER_NAME} =myaccount.mysaasdomainname.com
+          RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+          </VirtualHost>
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Habilitando el Virtual Host de Apache {{ MyAccountServerName }}.conf
+      ansible.builtin.command:
+        cmd: a2ensite {{ MyAccountServerName }}.conf
+      failed_when: false
+    - name: Verificando la configuración de Apache
+      ansible.builtin.command:
+        cmd: apache2ctl configtest
+      register: apache_config_test
+      failed_when: false
+    - name: Mostrando resultado del test de configuración
+      debug:
+        var: apache_config_test.stdout_lines
+    - name: Reiniciando Apache para aplicar cambios
+      service:
+        name: apache2
+        state: restarted
+      when: apache_config_test.rc == 0
 
 ## Reiniciando servicios
     - name: Reiniciando servicios
