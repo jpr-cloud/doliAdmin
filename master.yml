@@ -9,10 +9,14 @@
     user_login: "myunixlogin"
     user_shell: "/bin/bash"
     sshd_config_path: "/etc/ssh/sshd_config"
-    sudoers_file: "/etc/sudoers.d/myunixlogin"
     sellyoursaas_conf: "/etc/ssh/sshd_config.d/sellyoursaas.conf"
     user_sysadmin: "jpyrsaadmin"
     user_sysadmin_password: "p123p123"
+    superadmin: "admin"
+    superadmin_password: "p123p123"
+    dolibarr_branch: "master" ## 22.0
+    dolibarr_git_repo: "https://github.com/Dolibarr/dolibarr.git"
+    dolibarr_sellyoursaas_git_repo: "https://github.com/dolicloud/sellyoursaas.git"
 
     packages:
       # Herramientas y utilidades básicas
@@ -85,34 +89,225 @@
         dest: "{{ sellyoursaas_conf }}"
         content: |
           # Configuración adicional para SellYourSaas
-          AllowUsers {{ user_login }}
+          AllowUsers {{ user_login }} root {{ user_sysadmin }}
           PermitRootLogin yes
           PasswordAuthentication yes
         owner: root
         group: root
         mode: '0644'
+    - name: Crear entrada sudo personalizada para {{ user_login }}
+      copy:
+        dest: "/etc/sudoers.d{{ user_login }}"
+        content: "{{ user_login }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: '0440'
+    - name: Establecer contraseña de root
+      user:
+        name: root
+        password: "{{ 'p123p123' | password_hash('sha512') }}"
+    - name: Agregando al superadmin {{ superadmin }} con sus respectivas claves
+      ansible.builtin.user:
+        name: "{{ superadmin }}"
+        password: "{{ superadmin_password | password_hash('sha512') }}"
+        group: '{{ superadmin }}'
+        # Create a 2048-bit SSH key for user jsmith in ~{{jpyrsaadmin}}/.ssh/id_rsa
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+## Creando directorios de trabajo generales
+    - name: Creando directorios de trabajo generales
+      debug:
+        msg: "Creando directorios de trabajo generales"
+    - name: Creaando el directorio de trabajo /home/{{ superadmin }}/logs
+      ansible.builtin.file:
+        path: /home/{{ superadmin }}/logs
+        state: directory
+        mode: '770'
+        owner: root
+        group: '{{ superadmin }}'
+    - name: Creaando el directorio de trabajo /home/{{ superadmin }}/backup/conf
+      ansible.builtin.file:
+        path: /home/{{ superadmin }}/backup/conf
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        recurse: yes
+    - name: Creaando el directorio de trabajo /home/{{ superadmin }}/backup/mysql
+      ansible.builtin.file:
+        path: /home/{{ superadmin }}/backup/mysql
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        recurse: yes
+    - name: Creaando el directorio de trabajo /home/{{ superadmin }}/wwwroot
+      ansible.builtin.file:
+        path: /home/{{ superadmin }}/wwwroot
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        recurse: yes
+    - name: Creaando el directorio de trabajo /mnt/diskbackup/backup
+      ansible.builtin.file:
+        path: /mnt/diskbackup/backup
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: root
+        recurse: yes
+    - name: Creaando el directorio de trabajo /mnt/diskhome
+      ansible.builtin.file:
+        path: /mnt/diskhome
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+    - name: Creaando el directorio de trabajo /home/jail
+      ansible.builtin.file:
+        path: /home/jail
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+    - name: Creaando el directorio de trabajo /mnt/diskhome/home
+      ansible.builtin.file:
+        path: /mnt/diskhome/home
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+    - name: Creaando el directorio de trabajo /mnt/diskbackup/archives-test
+      ansible.builtin.file:
+        path: /mnt/diskbackup/archives-test
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: root
+    - name: Creaando el directorio de trabajo /mnt/diskbackup/archives-paid
+      ansible.builtin.file:
+        path: /mnt/diskbackup/archives-paid
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: root
+    - name: Creaando el directorio de trabajo /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam
+      ansible.builtin.file:
+        path: /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam
+        state: directory
+        mode: '0755'
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        recurse: yes
+## Creando enlaces simbólicos
+    - name: Creando enlaces simbólicos
+      debug:
+        msg: "Creando enlaces simbólicos"
+    - name: Creando enlace simbólico /mnt/diskhome/home -> /home/jail/home
+      ansible.builtin.file:
+        src: /mnt/diskhome/home
+        dest: /home/jail/home
+        state: link
+    - name: Creando enlace simbólico /mnt/diskbackup/backup -> /home/jail/backup
+      ansible.builtin.file:
+        src: /mnt/diskbackup/backup
+        dest: /home/jail/backup
+        state: link
+    - name: Creando enlace simbólico /mnt/diskbackup/archives-test /home/jail/archives-test
+      ansible.builtin.file:
+        src: /mnt/diskbackup/archives-test
+        dest: /home/jail/archives-test
+        state: link
+    - name: Creando enlace simbólico /mnt/diskbackup/archives-paid /home/jail/archives-paid
+      ansible.builtin.file:
+        src: /mnt/diskbackup/archives-paid
+        dest: /home/jail/archives-paid
+        state: link
+## Configuraciones adicionales
+    - name: Configurando /etc/sudoers
+      blockinfile:
+        path: /etc/sysctl.conf
+        block: |
+          Defaults set_home
+          Defaults use_pty
+        marker: "# {mark} ANSIBLE MANAGED BLOCK" 
+## Eliminando archivos de información al iniciar sesión
+    - name: Eliminando archivos de información al iniciar sesión
+      debug:
+        msg: "Eliminando archivos de información al iniciar sesión"
+    - name: Eliminando /etc/update-motd.d/00-header
+      file:
+        path: /etc/update-motd.d/00-header
+        state: absent
+    - name: Eliminando /etc/update-motd.d/20-runabove
+      file:
+        path: /etc/update-motd.d/20-runabove
+        state: absent
+    - name: Eliminando /etc/update-motd.d/50-landscape-sysinfo
+      file:
+        path: /etc/update-motd.d/50-landscape-sysinfo
+        state: absent
+    - name: Eliminando /etc/update-motd.d/50-motd-news
+      file:
+        path: /etc/update-motd.d/50-motd-news
+        state: absent
+    - name: Eliminando /etc/update-motd.d/9*-update*-available
+      file:
+        path: /etc/update-motd.d/9*-update*-available
+        state: absent
+    - name: Eliminando /etc/update-motd.d/92-unattended-upgrades
+      file:
+        path: /etc/update-motd.d/92-unattended-upgrades
+        state: absent
+    - name: Configurando /etc/bash.bashrc
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'
+          alias ip='ip -c=auto'
+          HISTIGNORE='-*'
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes" 
+## Clonando Dolibarr
+    - name: Clonando Dolibarr desde {{ dolibarr_git_repo }} en la rama {{ dolibarr_branch }}
+      git:
+        repo: "{{ dolibarr_git_repo }}"
+        dest: /home/{{ superadmin }}/wwwroot/dolibarr
+        version: "{{ dolibarr_branch }}"
+        force: yes
+        update: yes
+      when: dolibarr_git_repo is defined and dolibarr_branch is defined
+    - name: Configurando permisos para Dolibarr
+      file:
+        path: /home/{{ superadmin }}/wwwroot/dolibarr
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        mode: '0755'
+        recurse: yes
+## Clonando SellYourSaas
+    - name: Clonando SellYourSaas desde {{ dolibarr_sellyoursaas_git_repo }}
+      git:
+        repo: "{{ dolibarr_sellyoursaas_git_repo }}"
+        dest: /home/{{ superadmin }}/wwwroot/sellyoursaas
+        force: yes
+        update: yes
+    - name: Configurando permisos para SellYourSaas
+      file:
+        path: /home/{{ superadmin }}/wwwroot/sellyoursaas
+        owner: '{{ superadmin }}'
+        group: '{{ superadmin }}'
+        mode: '0755'
+        recurse: yes
+## Reiniciando servicios
+    - name: Reiniciando servicios
+      debug:
+        msg: "Reiniciando servicios"
     - name: Reiniciar SSH
       service:
         name: ssh
         state: restarted
 
-    - name: Crear entrada sudo personalizada
-      copy:
-        dest: "{{ sudoers_file }}"
-        content: "{{ user_login }} ALL=(ALL) NOPASSWD:ALL"
-        owner: root
-        group: root
-        mode: '0440'
-
-    - name: Establecer contraseña de root
-      user:
-        name: root
-        password: "{{ 'p123p123' | password_hash('sha512') }}"
-
-    - name: Establecer contraseña de admin
-      user:
-        name: admin
-        password: "{{ 'p123p123' | password_hash('sha512') }}"
-
 ## Comprobaciones
 # cat /proc/sys/vm/vfs_cache_pressure debería mostrar 50
+# Para probar una configuración ssh,  ejecutar sshd -T -C user=logintotest -C host=clienthost -C addr=clientaddr
