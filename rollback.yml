@@ -1,0 +1,238 @@
+---
+- name: Rollback de configuración del servidor master
+  hosts: all
+  become: true
+
+  vars:
+    # Variables del servidor
+    hostname_main: "master.j-cloud.com.mx"
+    user_login: "myunixlogin"
+    user_sysadmin: "jpyrsaadmin"
+    superadmin: "admin"
+    domain: "j-cloud.com.mx"
+    AdminServerName: "admin.{{ domain }}"
+    MyAccountServerName: "myaccount.{{ domain }}"
+
+  tasks:
+    - name: Rollback - Información del proceso
+      debug:
+        msg: "Iniciando rollback de la configuración del servidor master"
+
+    ## Deteniendo servicios
+    - name: Deteniendo Apache
+      service:
+        name: apache2
+        state: stopped
+      ignore_errors: yes
+
+    - name: Deteniendo PHP-FPM
+      service:
+        name: php8.3-fpm
+        state: stopped
+      ignore_errors: yes
+
+    - name: Deteniendo MariaDB
+      service:
+        name: mariadb
+        state: stopped
+      ignore_errors: yes
+
+    ## Deshabilitando sitios de Apache
+    - name: Deshabilitando Virtual Hosts de Apache
+      ansible.builtin.command:
+        cmd: a2dissite {{ item }}
+      loop:
+        - "{{ AdminServerName }}.conf"
+        - "{{ MyAccountServerName }}.conf"
+      ignore_errors: yes
+
+    ## Eliminando archivos de configuración creados
+    - name: Eliminando archivos de configuración de Apache
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apache2/sites-available/{{ AdminServerName }}.conf"
+        - "/etc/apache2/sites-available/{{ MyAccountServerName }}.conf"
+      ignore_errors: yes
+
+    - name: Eliminando archivos de configuración de SellYourSaas
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/sellyoursaas.conf"
+        - "/etc/sellyoursaas-public.conf"
+        - "/etc/sellyoursaas.d"
+      ignore_errors: yes
+
+    - name: Eliminando archivos sudoers creados
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/sudoers.d/{{ user_sysadmin }}"
+        - "/etc/sudoers.d/{{ user_login }}"
+      ignore_errors: yes
+
+    - name: Eliminando configuración SSH adicional
+      file:
+        path: "/etc/ssh/sshd_config.d/sellyoursaas.conf"
+        state: absent
+      ignore_errors: yes
+
+    ## Eliminando usuarios creados
+    - name: Eliminando usuario {{ user_sysadmin }}
+      user:
+        name: "{{ user_sysadmin }}"
+        state: absent
+        remove: yes
+      ignore_errors: yes
+
+    - name: Eliminando usuario {{ superadmin }}
+      user:
+        name: "{{ superadmin }}"
+        state: absent
+        remove: yes
+      ignore_errors: yes
+
+    - name: Eliminando grupo admin
+      group:
+        name: admin
+        state: absent
+      ignore_errors: yes
+
+    ## Eliminando directorios creados
+    - name: Eliminando directorios de trabajo
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/home/{{ superadmin }}"
+        - "/home/jail"
+        - "/mnt/diskbackup"
+        - "/mnt/diskhome"
+        - "/var/log/php-fpm"
+        - "/var/lib/php/sessions"
+        - "/var/lib/php/wsdlcache"
+      ignore_errors: yes
+
+    ## Restaurando configuraciones originales
+    - name: Restaurando hostname original
+      hostname:
+        name: "localhost"
+      ignore_errors: yes
+
+    - name: Restaurando configuración de sysctl
+      blockinfile:
+        path: /etc/sysctl.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes"
+        state: absent
+      ignore_errors: yes
+
+    - name: Restaurando configuración de bash.bashrc
+      blockinfile:
+        path: /etc/bash.bashrc
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes"
+        state: absent
+      ignore_errors: yes
+
+    - name: Restaurando shell predeterminado
+      file:
+        src: "/bin/dash"
+        dest: "/usr/bin/sh"
+        state: link
+        force: yes
+      ignore_errors: yes
+
+    - name: Restaurando configuración de contraseña
+      lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: 'password        \[success=1 default=ignore\]      pam_unix\.so obscure yescrypt minlen=8'
+        line: 'password        [success=1 default=ignore]      pam_unix.so obscure yescrypt'
+      ignore_errors: yes
+
+    ## Desinstalando paquetes (opcional)
+    - name: Preguntando si desinstalar paquetes
+      pause:
+        prompt: "¿Desea desinstalar los paquetes instalados? (y/n)"
+      register: uninstall_packages
+
+    - name: Desinstalando paquetes
+      apt:
+        name: "{{ item }}"
+        state: absent
+        purge: yes
+      loop:
+        - php-fpm
+        - php-gd
+        - php-imap
+        - php-json
+        - php-ldap
+        - php-mysql
+        - php-curl
+        - php-memcached
+        - php-imagick
+        - php-intl
+        - php-xml
+        - php-zip
+        - php-bz2
+        - php-ssh2
+        - php-mbstring
+        - php-dev
+        - php-soap
+        - php-tidy
+        - php-readline
+        - php-xmlrpc
+        - php-pear
+        - mariadb-server
+        - mariadb-client
+        - apache2
+        - apache2-bin
+        - bind9
+        - fail2ban
+        - postfix
+        - certbot
+        - spamassassin
+        - clamav
+        - clamav-daemon
+        - rkhunter
+        - chkrootkit
+        - apparmor
+        - apparmor-profiles
+        - apparmor-utils
+        - libreoffice-common
+        - libreoffice-writer
+        - mailutils
+      when: uninstall_packages.user_input == 'y'
+      ignore_errors: yes
+
+    - name: Limpiando paquetes huérfanos
+      apt:
+        autoremove: yes
+        purge: yes
+      when: uninstall_packages.user_input == 'y'
+      ignore_errors: yes
+
+    ## Reiniciando servicios esenciales
+    - name: Reiniciando SSH
+      service:
+        name: ssh
+        state: restarted
+      ignore_errors: yes
+
+    - name: Rollback completado
+      debug:
+        msg: "Rollback completado. Revise manualmente cualquier configuración residual."
+
+    ## Recomendaciones post-rollback
+    - name: Recomendaciones post-rollback
+      debug:
+        msg: |
+          RECOMENDACIONES POST-ROLLBACK:
+          1. Verificar que SSH funciona correctamente
+          2. Revisar logs del sistema: journalctl -xe
+          3. Verificar servicios activos: systemctl list-units --failed
+          4. Comprobar configuraciones de red
+          5. Reiniciar el servidor si es necesario
+          6. Verificar que no queden archivos residuales en /tmp

@@ -122,7 +122,7 @@
     - name: Estableciendo hostname {{ hostname_main }}
       hostname:
         name: "{{ hostname_main }}"
-    - name: Configurando /etc/sysctl.conf
+    - name: Configurando /etc/sysctl.conf (deployment)
       blockinfile:
         path: /etc/sysctl.conf
         block: |
