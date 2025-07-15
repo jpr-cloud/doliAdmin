@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    # variables
+    # variables del servidor master
     hostname_main: "master.j-cloud.com.mx"
     user_login: "myunixlogin"
     user_shell: "/bin/bash"
@@ -14,14 +14,99 @@
     user_sysadmin_password: "p123p123"
     superadmin: "admin"
     superadmin_password: "p123p123"
-    dolibarr_branch: "master" ## 22.0
+
+  ## Variables para la configuración de los nombres de dominio y correo electrónico
+
+    domain: "j-cloud.com.mx"
+    ServerName: "master.{{ domain }}"
+    subdomain: "withX"
+    emailfrom: "soporte@jpyrsa.mx"
+    emailsupervision: "soporte@jpyrsa.mx"
+
+
+    ## Variables para clonear Dolibarr y SellYourSaas
+    dolibarr_branch: "22.0" ## 22.0
     dolibarr_git_repo: "https://github.com/Dolibarr/dolibarr.git"
     dolibarr_sellyoursaas_git_repo: "https://github.com/dolicloud/sellyoursaas.git"
+
+    
+    ## Variable para la configuración de la base de datos
+    databasehost: "localhost"  # Cambiar si es necesario
+    databaseport: 3306
+    database: "sellyoursaas"
+    databaseuser: "sellyoursaas_user"
+    databasepass: "p123p123"
+
+    ## Configuración de la copia de seguridad remota
+    remotebackupserver: "ip.of.remote.backup.ssh.server"
+    remotebackupuser: "admin"
+    remotebackupdir: "/mnt/diskbackup"
 
     packages:
       # Herramientas y utilidades básicas
       - mc
       - git
+      - systemd-timesyncd
+      - gzip
+      - zip
+      - zstd
+      - memcached
+      - ncdu
+      - duc
+      - iotop
+      - acl
+      - mariadb-server
+      - mariadb-client
+      - apache2
+      - apache2-bin
+      - lynx
+      - php
+      - php-cli
+      - libapache2-mod-php
+      - php-fpm
+      - php-gd
+      - php-imap
+      - php-json
+      - php-ldap
+      - php-mysql
+      - php-curl
+      - php-memcached
+      - php-imagick
+      - php-intl
+      - php-xml
+      - php-zip
+      - php-bz2
+      - php-ssh2
+      - php-mbstring
+      - php-dev
+      - php-soap
+      - php-tidy
+      - libmcrypt-dev
+      - php-readline
+      - php-xmlrpc
+      - php-pear
+      - ghostscript
+      - watchdog
+      - cpulimit
+      - libapache2-mpm-itk
+      - libapache2-mod-apparmor
+      - apparmor
+      - apparmor-profiles
+      - apparmor-utils
+      - rkhunter
+      - chkrootkit
+      - bind9
+      - spamc
+      - spamassassin
+      - clamav
+      - clamav-daemon
+      - fail2ban
+      - libreoffice-common
+      - libreoffice-writer
+      - mailutils
+      - postfix
+      - certbot
+
   tasks:
     # En primer lugar, actualizamos los repositorios y paquetes
     - name: Actualizando los repositorios
@@ -270,35 +355,261 @@
           HISTIGNORE='-*'
         marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes" 
 ## Clonando Dolibarr
+    - name: Configurando Git safe directory para Dolibarr
+      ansible.builtin.command:
+        cmd: git config --global --add safe.directory /home/{{ superadmin }}/wwwroot/dolibarr
     - name: Clonando Dolibarr desde {{ dolibarr_git_repo }} en la rama {{ dolibarr_branch }}
-      git:
+      ansible.builtin.git:
         repo: "{{ dolibarr_git_repo }}"
         dest: /home/{{ superadmin }}/wwwroot/dolibarr
         version: "{{ dolibarr_branch }}"
         force: yes
         update: yes
+      become_user: "{{ superadmin }}"
       when: dolibarr_git_repo is defined and dolibarr_branch is defined
-    - name: Configurando permisos para Dolibarr
-      file:
-        path: /home/{{ superadmin }}/wwwroot/dolibarr
-        owner: '{{ superadmin }}'
-        group: '{{ superadmin }}'
-        mode: '0755'
-        recurse: yes
+
 ## Clonando SellYourSaas
+    - name: Configurando Git safe directory para SellYourSaas
+      ansible.builtin.command:
+        cmd: git config --global --add safe.directory /home/{{ superadmin }}/wwwroot/sellyoursaas
     - name: Clonando SellYourSaas desde {{ dolibarr_sellyoursaas_git_repo }}
-      git:
+      ansible.builtin.git:
         repo: "{{ dolibarr_sellyoursaas_git_repo }}"
         dest: /home/{{ superadmin }}/wwwroot/sellyoursaas
         force: yes
         update: yes
-    - name: Configurando permisos para SellYourSaas
-      file:
-        path: /home/{{ superadmin }}/wwwroot/sellyoursaas
-        owner: '{{ superadmin }}'
+      become_user: "{{ superadmin }}"
+
+## Creation of /.conf with credentials
+    - name: Creando el archivo /etc/sellyoursaas.conf
+      copy:
+        dest: "/etc/sellyoursaas.conf"
+        content: |
+          # File /etc/sellyoursaas.conf
+
+          # Dominio del servicio
+          domain= {{ domain }}
+
+          # If deployment server: url of subdomain for user instances
+          subdomain={{ subdomain }}.{{ domain }}
+
+          # Set to 1 if this server is the master server and must still have ssh and mysql port open,
+          # or 2 if the ssh and mysql access are restricted to ips into /etc/sellyoursaas.d/sellyoursaas-allowed-ip[-ssh|-mysql].conf only
+          masterserver=1
+          # Set to 1 if this server host instances for the pool (deployment server) and must have ssh and mysql port open,
+          # or 2 if the ssh and mysql access are restricted to ips into /etc/sellyoursaas.d/sellyoursaas-allowed-ip[-ssh|-mysql].conf only
+          instanceserver=1
+
+          # Set to 1 if this server hosts a dns for the pool (deployment server)
+          dnsserver=1
+
+          # Set this to 1 or 0 to archive or not the test instances during undeployment (if 0, test are destroyed with no archive step)
+          archivetestinstances=1
+
+          # Set to its own IP if it is a deployment server. Keep empty for master only server.
+          ipserverdeployment=ip.of.deployment.server
+
+          # If deployment server: IPs allowed to request a deployment
+          allowed_hosts=ip.of.master.server
+
+          # email from
+          emailfrom=noreply@mysaasdomainname.com
+          # email supervision
+          emailsupervision=supervision@mysaasdomainname.com
+
+          # Set location of the master database, ipOfMasterServer or localhost if on master server
+          databasehost= {{ databasehost }}
+          # Set port of the master database (default is 3306)
+          databaseport= {{ databaseport }}
+          # Set database name of the master server
+          database= {{ database }}
+          # Set a credential for an access to the master database (each server can have a different account to access the master database)
+          databaseuser={{ databaseuser }}
+          databasepass= {{ databasepass }}
+
+          # Option to use a master database on a different server than the master server
+          # Set location of the deployment database (default is localhost)
+          #databasehostdeployment=localhost
+          # Set port of the deployment database (default is 3306)
+          #databaseportdeployment=3306
+          # Set credential for the deployment database (if different of master database)
+          #databaseuserdeployment=sellyoursaas
+          #databasepassdeployment=xxxxx
+
+          # Set compress format (gzip or zstd) (zstd need Ubuntu >= 20 or Debian >= 10)
+          usecompressformatforarchive=zstd
+
+          # Set this to directory where dolibarr repository is installed
+          dolibarrdir=/home/admin/wwwroot/dolibarr
+          # Set directory where instances are stored (default is /home/jail/home)
+          targetdir=/home/jail/home
+
+          # Set directory where backup are stored
+          backupdir=/mnt/diskbackup/backup
+          # Set directory where archives of tests instances are stored
+          archivedirtest=/mnt/diskbackup/archives-test
+          # Set directory where archives of paid instances are stored
+          archivedirpaid=/mnt/diskbackup/archives-paid
+
+          # Set option to exclude some tables for some instances in backup
+          #backupignoretables=myinstance.withX.mysellyoursaasdomain.com:table1+table2,all:table3+table4,...
+          # Set option to use --compression-algorithms=zstd on mysqldump command (required with mysql 8.0.18+)
+          #backupcompressionalgorithms=zstd
+          # Can set the frequency of rsync
+          #backuprsyncdayfrequency=1
+          # Can set the frequency of sql dump
+          #backupdumpdayfrequency=1
+
+          # Set remote server launcher ip (default is 0.0.0.0)
+          remoteserverlistenip=0.0.0.0
+          # Set remote server launcher port (default is 8080)
+          remoteserverlistenport=8080
+
+          remotebackupserver= {{ remotebackupserver}}
+          remotebackupuser= {{ remotebackupuser}}
+          remotebackupdir= {{ remotebackupdir}}
+
+          # Option to use different path for dataroot
+          #olddoldataroot=/home/admin/wwwroot/dolibarr_documents
+          #newdoldataroot=/new/path/of/documents
+          # Options to change the directory of vhostfile templates
+          #templatesdir=/path/of/vhostfile/templates
+
+          # Options to change the SSL certificates names in Apache virtualhost
+          #websslcertificatecrt=with.sellyoursaas.com.crt
+          #websslcertificatekey=with.sellyoursaas.com.key
+          #websslcertificateintermediate=with.sellyoursaas.com-intermediate.crt
+
+          # Options for Jailkit
+          #chrootdir=/home/jail/chroot
+          #privatejailtemplatename=privatejail
+          #commonjailtemplatename=commonjail
+        owner: root
         group: '{{ superadmin }}'
-        mode: '0755'
-        recurse: yes
+        mode: '0730'
+    - name: Creando el directorio /etc/sellyoursaas.conf
+      ansible.builtin.file:
+        path: /etc/sellyoursaas.conf
+        state: directory
+
+## Habilitando los módulos de Apache
+    - name: Habilitando los módulos de Apache
+      ansible.builtin.command:
+        cmd: a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.0|php7.2|php7.4|php8.1|php8.2
+      args:
+        warn: false 
+## Deshabilitando los módulos de Apache que no son necesarios
+    - name: Deshabilitando los módulos de Apache que no son necesarios
+      ansible.builtin.command:
+        cmd: a2dismod mcrypt auth_digest authn_anon asis suexec userdir usertrack authn_dbd dbd ident mime_magic speling
+      args:
+        warn: false 
+## Habilitando las configuraciones de Apache para que funcionen con MPM_PERFORK y MPM_ITK
+    - name: Habilitando las configuraciones de Apache para que funcionen con MPM_PERFORK y MPM_ITK
+      ansible.builtin.command:
+        cmd: a2enconf charset localized-error-pages other-vhosts-access-log security
+      args:
+        warn: false 
+## Creación del virtual Host de Apache
+    - name: Creando el Virtual Host de Apache /etc/apache2/sites-available/{{ ServerName }}.conf
+      copy:
+        dest: "/etc/apache2/sites-available/{{ ServerName }}.conf"
+        content: |
+          ##########################
+          # Admin Dolibarr Master
+          ##########################
+          <VirtualHost *:80>
+            #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
+            #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
+            #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f webmaster@mysaasdomainname.com"
+            php_admin_value open_basedir /tmp/:/home/admin/wwwroot/:/usr/share/GeoIP:/home/jail/home
+
+            ServerName    {{ ServerName }}
+            DocumentRoot /home/admin/wwwroot/dolibarr/htdocs/
+            ErrorLog     /home/admin/logs/mycompany_admin_error_log
+            CustomLog    /home/admin/logs/mycompany_admin_access_log combined
+
+            UseCanonicalName Off
+
+            # Not sure this can help
+            TimeOut 20
+
+            KeepAlive On
+            KeepAliveTimeout 5
+            MaxKeepAliveRequests 100
+
+            <Directory /home/admin/wwwroot/dolibarr/htdocs/>
+              AuthType Basic
+              AuthName "Authenticate to backoffice"
+              AuthUserFile /etc/apache2/.htpasswd
+              Require valid-user
+              # Or if you prefer restrict to some ip, you can add lines "Require ip x.y.z.w" into a .conf file into this directory:
+              IncludeOptional /etc/sellyoursaas.d/*-allowed-ip.conf
+            </Directory>
+
+            #leaving /public, /api and /dav accessible to everyone
+            <Directory /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/public/>
+              AuthType None
+              Require all granted
+              Satisfy any
+            </Directory>
+            <Directory /home/admin/wwwroot/dolibarr/htdocs/public/>
+              AuthType None
+              Require all granted
+              Satisfy any
+            </Directory>
+            <Directory /home/admin/wwwroot/dolibarr/htdocs/api/>
+              AuthType None
+              Require all granted
+              Satisfy any
+            </Directory>
+            <Directory /home/admin/wwwroot/dolibarr/htdocs/dav/>
+              AuthType None
+              Require all granted
+              Satisfy any
+            </Directory>
+            <Files ~ "(document\.php|viewimage\.php|\.js\.php|\.js|\.css\.php|\.css|\.gif|\.png|\.svg|\.woff2|favicon\.ico)$">
+              AuthType None
+              Require all granted
+              Satisfy any
+            </Files>
+
+            <Directory /home/admin/wwwroot>
+              AllowOverride FileInfo Limit
+              Options +FollowSymLinks
+              Order allow,deny
+              Deny from env=bad_bots
+              Allow from all
+              Require all granted
+            </Directory>
+
+            # Add alias git on sellyoursaas git dir
+            Alias "/git" "/home/admin/wwwroot/dolibarr_documents/sellyoursaas/git"
+            <Directory /home/admin/wwwroot/dolibarr_documents/sellyoursaas/git>
+              AllowOverride FileInfo Limit
+              Options +Indexes
+              Order allow,deny
+              ## Require ip 1.2.3.4
+            </Directory>
+
+            ExpiresActive On
+            ExpiresByType image/x-icon A2592000
+            ExpiresByType image/gif A2592000
+            ExpiresByType image/png A2592000
+            ExpiresByType image/jpeg A2592000
+            ExpiresByType text/css A2592000
+            ExpiresByType text/javascript A2592000
+            ExpiresByType application/x-javascript A2592000
+            ExpiresByType application/javascript A2592000
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Habilitando el Virtual Host de Apache
+      ansible.builtin.command:
+        cmd: a2ensite {{ ServerName }}.conf
+      args:
+        warn: false
+
 ## Reiniciando servicios
     - name: Reiniciando servicios
       debug:
