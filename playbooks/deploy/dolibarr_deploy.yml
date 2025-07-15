@@ -1,0 +1,319 @@
+# =============================================================================
+# Configuración Dolibarr en Deploy (Instancias)
+# =============================================================================
+---
+- name: "Configuración Dolibarr Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear template base de Dolibarr para instancias"
+      file:
+        path: "{{ directories.templates }}/dolibarr"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+
+    - name: "Descargar Dolibarr base para template"
+      get_url:
+        url: "{{ dolibarr.download_url }}"
+        dest: "/tmp/dolibarr-template-{{ dolibarr.version }}.tgz"
+        mode: '0644'
+
+    - name: "Extraer Dolibarr template"
+      unarchive:
+        src: "/tmp/dolibarr-template-{{ dolibarr.version }}.tgz"
+        dest: "{{ directories.templates }}"
+        remote_src: yes
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+
+    - name: "Crear enlace simbólico del template"
+      file:
+        src: "{{ directories.templates }}/dolibarr-{{ dolibarr.version }}"
+        dest: "{{ directories.templates }}/dolibarr"
+        state: link
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+
+    - name: "Crear template de configuración para instancias"
+      blockinfile:
+        path: "{{ directories.templates }}/conf.php.template"
+        create: yes
+        marker: "// {mark} ANSIBLE MANAGED INSTANCE CONFIG TEMPLATE"
+        block: |
+          <?php
+          // Template de configuración para instancias SellYourSaas
+          
+          // URLs y rutas
+          $dolibarr_main_url_root='https://INSTANCE_DOMAIN';
+          $dolibarr_main_document_root='{{ directories.instances }}/INSTANCE_NAME/htdocs';
+          $dolibarr_main_url_root_alt='/custom';
+          $dolibarr_main_document_root_alt='{{ directories.instances }}/INSTANCE_NAME/htdocs/custom';
+          $dolibarr_main_data_root='{{ directories.instances }}/INSTANCE_NAME/documents';
+          
+          // Base de datos
+          $dolibarr_main_db_host='{{ master_server.ip }}';
+          $dolibarr_main_db_port='3306';
+          $dolibarr_main_db_name='INSTANCE_DB_NAME';
+          $dolibarr_main_db_prefix='llx_';
+          $dolibarr_main_db_user='{{ database.user }}';
+          $dolibarr_main_db_pass='{{ database.password }}';
+          $dolibarr_main_db_type='mysqli';
+          $dolibarr_main_db_character_set='utf8mb4';
+          $dolibarr_main_db_collation='utf8mb4_unicode_ci';
+          
+          // Configuración de la instancia
+          $dolibarr_main_authentication='dolibarr';
+          $dolibarr_main_force_https='1';
+          $dolibarr_main_prod='1';
+          $dolibarr_main_restrict_os_commands='';
+          
+          // Configuración específica de instancia
+          $dolibarr_main_instance_unique_id='INSTANCE_UNIQUE_ID';
+          $dolibarr_main_cookie_cryptkey='INSTANCE_COOKIE_KEY';
+          
+          // Configuración de SellYourSaas
+          $dolibarr_main_sellyoursaas_instancename='INSTANCE_NAME';
+          $dolibarr_main_sellyoursaas_domain='INSTANCE_DOMAIN';
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0644'
+
+    - name: "Crear script para crear nuevas instancias"
+      blockinfile:
+        path: "{{ directories.scripts }}/create_instance.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED CREATE INSTANCE SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script para crear nueva instancia de Dolibarr
+          
+          INSTANCE_NAME=$1
+          INSTANCE_DOMAIN=$2
+          INSTANCE_DB_NAME=$3
+          
+          if [ $# -ne 3 ]; then
+              echo "Uso: $0 instance_name instance_domain instance_db_name"
+              exit 1
+          fi
+          
+          LOG_FILE="/var/log/instance_creation.log"
+          TEMPLATE_DIR="{{ directories.templates }}/dolibarr"
+          INSTANCE_DIR="{{ directories.instances }}/$INSTANCE_NAME"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          log_message "Iniciando creación de instancia: $INSTANCE_NAME"
+          
+          # Crear directorio de la instancia
+          mkdir -p $INSTANCE_DIR/{htdocs,documents,tmp}
+          
+          # Copiar template de Dolibarr
+          cp -r $TEMPLATE_DIR/* $INSTANCE_DIR/htdocs/
+          
+          # Crear directorio de configuración
+          mkdir -p $INSTANCE_DIR/htdocs/conf
+          
+          # Generar claves únicas para la instancia
+          UNIQUE_ID=$(openssl rand -hex 16)
+          COOKIE_KEY=$(openssl rand -hex 32)
+          
+          # Crear configuración de la instancia
+          sed "s/INSTANCE_NAME/$INSTANCE_NAME/g; 
+               s/INSTANCE_DOMAIN/$INSTANCE_DOMAIN/g; 
+               s/INSTANCE_DB_NAME/$INSTANCE_DB_NAME/g;
+               s/INSTANCE_UNIQUE_ID/$UNIQUE_ID/g;
+               s/INSTANCE_COOKIE_KEY/$COOKIE_KEY/g" \
+               {{ directories.templates }}/conf.php.template > $INSTANCE_DIR/htdocs/conf/conf.php
+          
+          # Configurar permisos
+          chown -R {{ system_users.app_admin }}:www-data $INSTANCE_DIR
+          chmod -R 755 $INSTANCE_DIR
+          chmod -R 775 $INSTANCE_DIR/documents
+          chmod -R 775 $INSTANCE_DIR/tmp
+          chmod 644 $INSTANCE_DIR/htdocs/conf/conf.php
+          
+          # Crear base de datos
+          mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} \
+              -e "CREATE DATABASE IF NOT EXISTS $INSTANCE_DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          
+          if [ $? -eq 0 ]; then
+              log_message "Base de datos $INSTANCE_DB_NAME creada exitosamente"
+          else
+              log_message "ERROR: No se pudo crear la base de datos $INSTANCE_DB_NAME"
+              exit 1
+          fi
+          
+          # Crear Virtual Host
+          {{ directories.scripts }}/manage_vhost.sh create $INSTANCE_NAME $INSTANCE_DOMAIN
+          
+          # Configurar certificado SSL si es necesario
+          certbot certonly --apache --non-interactive --agree-tos \
+              --email {{ notifications.email }} --domains $INSTANCE_DOMAIN --expand
+          
+          log_message "Instancia $INSTANCE_NAME creada exitosamente en $INSTANCE_DOMAIN"
+          
+          echo "Instancia creada exitosamente:"
+          echo "- Nombre: $INSTANCE_NAME"
+          echo "- Dominio: $INSTANCE_DOMAIN"
+          echo "- Base de datos: $INSTANCE_DB_NAME"
+          echo "- Directorio: $INSTANCE_DIR"
+
+    - name: "Crear script para eliminar instancias"
+      blockinfile:
+        path: "{{ directories.scripts }}/delete_instance.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED DELETE INSTANCE SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script para eliminar instancia de Dolibarr
+          
+          INSTANCE_NAME=$1
+          INSTANCE_DOMAIN=$2
+          INSTANCE_DB_NAME=$3
+          BACKUP_BEFORE=$4
+          
+          if [ $# -lt 3 ]; then
+              echo "Uso: $0 instance_name instance_domain instance_db_name [backup_before_delete]"
+              exit 1
+          fi
+          
+          LOG_FILE="/var/log/instance_deletion.log"
+          INSTANCE_DIR="{{ directories.instances }}/$INSTANCE_NAME"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          log_message "Iniciando eliminación de instancia: $INSTANCE_NAME"
+          
+          # Hacer backup si se solicita
+          if [ "$BACKUP_BEFORE" = "backup" ]; then
+              BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+              BACKUP_DIR="{{ directories.backups }}/deleted_instances"
+              mkdir -p $BACKUP_DIR
+              
+              # Backup de archivos
+              tar -czf $BACKUP_DIR/${INSTANCE_NAME}_${BACKUP_DATE}.tar.gz $INSTANCE_DIR
+              
+              # Backup de base de datos
+              mysqldump -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} \
+                  --single-transaction $INSTANCE_DB_NAME > $BACKUP_DIR/${INSTANCE_DB_NAME}_${BACKUP_DATE}.sql
+              
+              log_message "Backup creado antes de eliminar: ${INSTANCE_NAME}_${BACKUP_DATE}"
+          fi
+          
+          # Eliminar Virtual Host
+          {{ directories.scripts }}/manage_vhost.sh delete $INSTANCE_NAME $INSTANCE_DOMAIN
+          
+          # Eliminar certificado SSL
+          certbot delete --cert-name $INSTANCE_DOMAIN --non-interactive
+          
+          # Eliminar directorio de la instancia
+          rm -rf $INSTANCE_DIR
+          
+          # Eliminar base de datos
+          mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} \
+              -e "DROP DATABASE IF EXISTS $INSTANCE_DB_NAME;"
+          
+          if [ $? -eq 0 ]; then
+              log_message "Base de datos $INSTANCE_DB_NAME eliminada exitosamente"
+          else
+              log_message "ERROR: No se pudo eliminar la base de datos $INSTANCE_DB_NAME"
+          fi
+          
+          log_message "Instancia $INSTANCE_NAME eliminada exitosamente"
+          
+          echo "Instancia eliminada exitosamente:"
+          echo "- Nombre: $INSTANCE_NAME"
+          echo "- Dominio: $INSTANCE_DOMAIN"
+          echo "- Base de datos: $INSTANCE_DB_NAME"
+
+    - name: "Crear script de mantenimiento de instancias"
+      blockinfile:
+        path: "{{ directories.scripts }}/maintenance_instances.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED MAINTENANCE SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script de mantenimiento para instancias
+          
+          LOG_FILE="/var/log/instances_maintenance.log"
+          INSTANCES_DIR="{{ directories.instances }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          log_message "Iniciando mantenimiento de instancias"
+          
+          # Limpiar archivos temporales de cada instancia
+          for instance_dir in $INSTANCES_DIR/*/; do
+              if [ -d "$instance_dir" ]; then
+                  instance_name=$(basename "$instance_dir")
+                  
+                  # Limpiar archivos tmp antiguos
+                  find "$instance_dir/tmp" -type f -mtime +1 -delete 2>/dev/null
+                  
+                  # Limpiar logs antiguos de la instancia
+                  find "$instance_dir" -name "*.log" -mtime +30 -delete 2>/dev/null
+                  
+                  # Verificar permisos
+                  chown -R {{ system_users.app_admin }}:www-data "$instance_dir"
+                  chmod -R 755 "$instance_dir"
+                  chmod -R 775 "$instance_dir/documents" 2>/dev/null
+                  chmod -R 775 "$instance_dir/tmp" 2>/dev/null
+                  
+                  log_message "Mantenimiento completado para instancia: $instance_name"
+              fi
+          done
+          
+          log_message "Mantenimiento de instancias completado"
+
+    - name: "Configurar permisos de scripts"
+      file:
+        path: "{{ item }}"
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+      loop:
+        - "{{ directories.scripts }}/create_instance.sh"
+        - "{{ directories.scripts }}/delete_instance.sh"
+        - "{{ directories.scripts }}/maintenance_instances.sh"
+
+    - name: "Configurar cron para mantenimiento de instancias"
+      cron:
+        name: "Mantenimiento de instancias"
+        minute: "0"
+        hour: "4"
+        job: "{{ directories.scripts }}/maintenance_instances.sh"
+        user: root
+
+    - name: "Crear archivos de log"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0644'
+      loop:
+        - /var/log/instance_creation.log
+        - /var/log/instance_deletion.log
+        - /var/log/instances_maintenance.log
+
+    - name: "Limpiar archivos temporales"
+      file:
+        path: "/tmp/dolibarr-template-{{ dolibarr.version }}.tgz"
+        state: absent

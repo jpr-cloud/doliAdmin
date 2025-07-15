@@ -1,0 +1,68 @@
+# =============================================================================
+# Instalación de Paquetes Comunes para Master y Deployment
+# =============================================================================
+---
+- name: "Instalación de paquetes del sistema"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Actualizar cache de paquetes"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: "Desactivar actualizaciones automáticas"
+      package:
+        name: unattended-upgrades
+        state: absent
+
+    - name: "Instalar paquetes básicos"
+      package:
+        name: "{{ packages_basic }}"
+        state: present
+
+    - name: "Instalar paquetes de base de datos"
+      package:
+        name: "{{ packages_database }}"
+        state: present
+
+    - name: "Instalar paquetes web"
+      package:
+        name: "{{ packages_web }}"
+        state: present
+
+    - name: "Instalar paquetes PHP"
+      package:
+        name: "{{ packages_php }}"
+        state: present
+
+    - name: "Instalar paquetes de seguridad"
+      package:
+        name: "{{ packages_security }}"
+        state: present
+
+    - name: "Instalar paquetes adicionales"
+      package:
+        name: "{{ packages_additional }}"
+        state: present
+
+    - name: "Compilar e instalar extensión mcrypt para PHP"
+      shell: |
+        pecl install mcrypt
+        echo 'extension=mcrypt.so' > /etc/php/{{ php.version }}/mods-available/mcrypt.ini
+        phpenmod mcrypt
+      args:
+        creates: "/etc/php/{{ php.version }}/mods-available/mcrypt.ini"
+
+    - name: "Configurar timezone"
+      timezone:
+        name: America/Mexico_City
+
+    - name: "Establecer shell por defecto a bash"
+      file:
+        src: /bin/bash
+        dest: /usr/bin/sh
+        state: link
+        force: yes

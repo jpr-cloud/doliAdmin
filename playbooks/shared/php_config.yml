@@ -1,0 +1,79 @@
+# =============================================================================
+# Configuración de PHP para SellYourSaas
+# =============================================================================
+---
+- name: "Configuración de PHP"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar PHP memory_limit"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^memory_limit ='
+        line: "memory_limit = {{ php.memory_limit }}"
+      notify: restart apache2
+
+    - name: "Configurar PHP upload_max_filesize"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^upload_max_filesize ='
+        line: "upload_max_filesize = {{ php.upload_max_filesize }}"
+      notify: restart apache2
+
+    - name: "Configurar PHP post_max_size"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^post_max_size ='
+        line: "post_max_size = {{ php.post_max_size }}"
+      notify: restart apache2
+
+    - name: "Configurar PHP max_execution_time"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^max_execution_time ='
+        line: "max_execution_time = {{ php.max_execution_time }}"
+      notify: restart apache2
+
+    - name: "Configurar permisos para sesiones PHP en deployment"
+      block:
+        - name: "Configurar permisos 733 para sesiones"
+          file:
+            path: "{{ item }}"
+            mode: '0733'
+            state: directory
+          loop:
+            - /dev/shm
+            - /var/lib/php/sessions
+
+        - name: "Establecer sticky bit para directorios de sesiones"
+          file:
+            path: "{{ item }}"
+            mode: '+t'
+          loop:
+            - /dev/shm
+            - /var/lib/php/sessions
+      when: server_type == "deployment"
+
+    # Configurar wrapper PHP para mail() function en deployment
+    - name: "Configurar sendmail_path para wrapper en deployment"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^;?sendmail_path ='
+        line: "sendmail_path = {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/phpsendmail.php"
+      notify: restart apache2
+      when: server_type == "deployment"
+
+    - name: "Configurar sendmail_path para CLI en deployment"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/cli/php.ini"
+        regexp: '^;?sendmail_path ='
+        line: "sendmail_path = {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/phpsendmail.php"
+      when: server_type == "deployment"
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

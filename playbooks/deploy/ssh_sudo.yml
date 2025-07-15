@@ -1,0 +1,126 @@
+# =============================================================================
+# Configuración SSH y Sudo en Deploy
+# =============================================================================
+---
+- name: "Configuración SSH y Sudo Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar hostname del servidor"
+      hostname:
+        name: "{{ deployment_server.hostname }}"
+
+    - name: "Actualizar /etc/hosts"
+      blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE MANAGED HOSTS"
+        block: |
+          {{ deployment_server.ip }}    {{ deployment_server.fqdn }}
+          {{ master_server.ip }}        {{ master_server.fqdn }}
+
+    - name: "Crear usuario administrador"
+      user:
+        name: "{{ system_users.app_admin }}"
+        password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
+        groups: sudo,www-data
+        shell: /bin/bash
+        create_home: yes
+        state: present
+
+    - name: "Crear directorio .ssh para usuario admin"
+      file:
+        path: "/home/{{ system_users.app_admin }}/.ssh"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0700'
+
+    - name: "Configurar clave SSH para usuario admin"
+      authorized_key:
+        user: "{{ system_users.app_admin }}"
+        key: "{{ ssh_keys.admin_public }}"
+        state: present
+
+    - name: "Configurar sudo sin password para usuario admin"
+      blockinfile:
+        path: "/etc/sudoers.d/{{ system_users.app_admin }}"
+        create: yes
+        mode: '0440'
+        marker: "# {mark} ANSIBLE MANAGED SUDO"
+        block: |
+          {{ system_users.app_admin }} ALL=(ALL) NOPASSWD:ALL
+
+    - name: "Crear directorios principales para deployment"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.diskhome }}"
+        - "{{ directories.diskbackup }}"
+        - "{{ directories.jail }}"
+        - "{{ directories.diskhome }}/home"  # Donde van las instancias
+        - "{{ directories.archives_test }}"
+        - "{{ directories.archives_paid }}"
+        - "{{ directories.documents }}/sellyoursaas/spam"
+        - "{{ directories.templates }}"
+
+    - name: "Crear enlaces simbólicos para deployment"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+      loop:
+        - { src: "{{ directories.diskhome }}/home", dest: "{{ directories.jail }}/home" }
+        - { src: "{{ directories.diskbackup }}/backup", dest: "{{ directories.jail }}/backup" }
+        - { src: "{{ directories.archives_test }}", dest: "{{ directories.jail }}/archives-test" }
+        - { src: "{{ directories.archives_paid }}", dest: "{{ directories.jail }}/archives-paid" }
+
+    - name: "Configurar SSH (cambiar puerto)"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port'
+        line: "Port {{ ssh_config.port }}"
+        backup: yes
+      notify: restart sshd
+
+    - name: "Deshabilitar autenticación por password para root"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: restart sshd
+
+    - name: "Deshabilitar autenticación por password"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: restart sshd
+
+    - name: "Habilitar solo autenticación por clave pública"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication'
+        line: 'PubkeyAuthentication yes'
+      notify: restart sshd
+
+    - name: "Configurar usuarios permitidos SSH"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?AllowUsers'
+        line: "AllowUsers {{ system_users.app_admin }}"
+      notify: restart sshd
+
+  handlers:
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted

@@ -1,0 +1,35 @@
+# =============================================================================
+# Configuración de Cron Jobs
+# =============================================================================
+---
+- name: "Configuración de Cron Jobs para Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar cron jobs para Master"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        job: "{{ item.job }}"
+        user: root
+      loop: "{{ cron_jobs.master }}"
+
+- name: "Configuración de Cron Jobs para Deployment"
+  hosts: deployment
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar cron jobs para Deployment"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        job: "{{ item.job }}"
+        user: root
+      loop: "{{ cron_jobs.deployment }}"

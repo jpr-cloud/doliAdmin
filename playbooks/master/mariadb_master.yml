@@ -1,0 +1,121 @@
+# =============================================================================
+# Configuración MariaDB/Galera en Master
+# =============================================================================
+---
+- name: "Configuración MariaDB Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar MariaDB"
+      blockinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        marker: "# {mark} ANSIBLE MANAGED MARIADB CONFIG"
+        block: |
+          # SellYourSaas MariaDB Configuration
+          bind-address = 0.0.0.0
+          max_connections = 500
+          innodb_buffer_pool_size = 512M
+          innodb_log_file_size = 128M
+          query_cache_limit = 2M
+          query_cache_size = 64M
+          slow_query_log = 1
+          slow_query_log_file = /var/log/mysql/slow.log
+          long_query_time = 2
+
+    - name: "Iniciar y habilitar MariaDB"
+      systemd:
+        name: mariadb
+        state: started
+        enabled: yes
+
+    - name: "Asegurar instalación de MariaDB"
+      expect:
+        command: mysql_secure_installation
+        responses:
+          'Enter current password for root': '{{ database.root_password }}'
+          'Set root password': 'Y'
+          'New password': '{{ database.root_password }}'
+          'Re-enter new password': '{{ database.root_password }}'
+          'Remove anonymous users': 'Y'
+          'Disallow root login remotely': 'N'
+          'Remove test database': 'Y'
+          'Reload privilege tables': 'Y'
+        timeout: 30
+      ignore_errors: yes
+
+    - name: "Crear usuario de base de datos para SellYourSaas"
+      mysql_user:
+        login_user: root
+        login_password: "{{ database.root_password }}"
+        name: "{{ database.user }}"
+        password: "{{ database.password }}"
+        host: "%"
+        priv: "*.*:ALL,GRANT"
+        state: present
+
+    - name: "Crear base de datos principal"
+      mysql_db:
+        login_user: root
+        login_password: "{{ database.root_password }}"
+        name: "{{ database.main_db }}"
+        state: present
+        encoding: utf8mb4
+        collation: utf8mb4_unicode_ci
+
+    - name: "Configurar acceso remoto desde servidor de despliegue"
+      mysql_user:
+        login_user: root
+        login_password: "{{ database.root_password }}"
+        name: "{{ database.user }}"
+        password: "{{ database.password }}"
+        host: "{{ deployment_server.ip }}"
+        priv: "*.*:ALL,GRANT"
+        state: present
+
+    - name: "Configurar MaxScale (si está instalado)"
+      blockinfile:
+        path: /etc/maxscale.cnf
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED MAXSCALE CONFIG"
+        block: |
+          [maxscale]
+          threads=auto
+          admin_host=0.0.0.0
+          admin_port=8989
+          admin_auth=true
+          admin_log_auth_failures=true
+
+          [Galera-Monitor]
+          type=monitor
+          module=galeramon
+          servers=server1
+          user={{ database.user }}
+          password={{ database.password }}
+          monitor_interval=2s
+
+          [Read-Write-Service]
+          type=service
+          router=readwritesplit
+          servers=server1
+          user={{ database.user }}
+          password={{ database.password }}
+
+          [Read-Write-Listener]
+          type=listener
+          service=Read-Write-Service
+          protocol=MySQLClient
+          port=3306
+
+          [server1]
+          type=server
+          address={{ master_server.ip }}
+          port=3306
+          protocol=MySQLBackend
+      when: ansible_facts['packages']['maxscale'] is defined
+
+    - name: "Reiniciar MariaDB para aplicar cambios"
+      systemd:
+        name: mariadb
+        state: restarted

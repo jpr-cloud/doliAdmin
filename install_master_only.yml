@@ -1,0 +1,147 @@
+# =============================================================================
+# INSTALACIÓN SOLO SERVIDOR MASTER
+# =============================================================================
+# Este playbook instala únicamente el servidor master de SellYourSaas
+# =============================================================================
+---
+- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de instalación Master"
+      debug:
+        msg:
+          - "=========================================="
+          - "  INSTALACIÓN SOLO SERVIDOR MASTER"
+          - "=========================================="
+          - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
+          - "Dominio Master: {{ master_server.domain }}"
+          - "Versión Dolibarr: {{ dolibarr.version }}"
+          - "=========================================="
+
+# =============================================================================
+# CONFIGURACIÓN BÁSICA MASTER
+# =============================================================================
+- name: "FASE 1: Instalación de paquetes comunes en Master"
+  import_playbook: playbooks/shared/common_packages.yml
+  vars:
+    ansible_limit: master
+
+# =============================================================================
+# CONFIGURACIÓN ESPECÍFICA MASTER
+# =============================================================================
+- name: "FASE 2.1: Configuración SSH y usuarios en Master"
+  import_playbook: playbooks/master/ssh_sudo.yml
+
+- name: "FASE 2.2: Configuración NFS Server en Master"
+  import_playbook: playbooks/master/nfs_master.yml
+
+- name: "FASE 2.3: Configuración PHP en Master"
+  import_playbook: playbooks/shared/php_config.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.4: Configuración Apache en Master"
+  import_playbook: playbooks/master/apache_master.yml
+
+- name: "FASE 2.5: Configuración MariaDB en Master"
+  import_playbook: playbooks/master/mariadb_master.yml
+
+- name: "FASE 2.6: Configuración Fail2ban en Master"
+  import_playbook: playbooks/master/fail2ban_master.yml
+
+- name: "FASE 2.7: Configuración SSL/Certbot en Master"
+  import_playbook: playbooks/master/certbot_master.yml
+
+- name: "FASE 2.8: Instalación Dolibarr en Master"
+  import_playbook: playbooks/master/dolibarr_master.yml
+
+- name: "FASE 2.9: Configuración Logrotate en Master"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.10: Configuración Cron en Master"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.11: Configuración AFICK en Master"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.12: Configuración Watchdog en Master"
+  import_playbook: playbooks/master/watchdog_master.yml
+
+# =============================================================================
+# VERIFICACIÓN MASTER
+# =============================================================================
+- name: "FASE 3: Verificación instalación Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Verificar servicios críticos en Master"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - mariadb
+        - fail2ban
+        - nfs-kernel-server
+
+    - name: "Verificar acceso a directorios críticos"
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.backups }}"
+        - "{{ directories.scripts }}"
+      check_mode: yes
+
+    - name: "Mostrar resumen de instalación Master"
+      debug:
+        msg:
+          - "=========================================="
+          - "INSTALACIÓN MASTER COMPLETADA"
+          - "Servidor: {{ inventory_hostname }}"
+          - "IP: {{ ansible_host }}"
+          - "Hostname: {{ ansible_hostname }}"
+          - "=========================================="
+
+# =============================================================================
+# INFORMACIÓN FINAL MASTER
+# =============================================================================
+- name: "FASE 4: Información final Master"
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de acceso Master"
+      debug:
+        msg:
+          - "================================================================"
+          - "          INSTALACIÓN SERVIDOR MASTER COMPLETADA"
+          - "================================================================"
+          - ""
+          - "🔧 ACCESOS MASTER:"
+          - "   • Admin Panel: https://admin.{{ master_server.domain }}"
+          - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
+          - "   • SSH: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
+          - ""
+          - "📊 SERVICIOS MASTER ACTIVOS:"
+          - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
+          - "   • Apache con SSL automático"
+          - "   • NFS Server para backups compartidos"
+          - "   • Monitoreo y backups automáticos"
+          - ""
+          - "🚀 PRÓXIMOS PASOS:"
+          - "   1. Acceder al panel de administración"
+          - "   2. Completar configuración inicial de SellYourSaas"
+          - "   3. Instalar servidor de deployment cuando esté listo"
+          - ""
+          - "📧 NOTIFICACIONES: {{ notifications.email }}"
+          - "================================================================"

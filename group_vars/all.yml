@@ -1,3 +1,330 @@
-master: { name: master, ip: 127.0.0.1 }
-# managed_1: { name: managed-1, ip: 20.0.1.11 }
-# managed_2: { name: managed-2, ip: 20.0.1.4 }
+# =============================================================================
+# Variables de Configuración para SellYourSaas
+# =============================================================================
+
+# === CONFIGURACIÓN DE SERVIDORES ===
+master_server:
+  hostname: "main"
+  ip: "192.168.1.2"
+  domain: "jpyrsa.com.mx"
+  fqdn: "main.jpyrsa.com.mx"
+
+deployment_server:
+  hostname: "deploy"
+  ip: "192.168.1.3"
+  domain: "a1.jpyrsa.com.mx"  # Dominio para instancias
+  fqdn: "deploy.jpyrsa.com.mx"
+
+# === USUARIOS Y CONTRASEÑAS ===
+system_users:
+  unix_admin: "myunixlogin"
+  app_admin: "admin"
+  passwords:
+    root: "p123p123"
+    admin: "p123p123"
+
+# === CLAVES SSH ===
+ssh_config:
+  port: 2222
+  
+ssh_keys:
+  admin_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@jpyrsa.com.mx"  # Cambiar por tu clave real
+  root_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@jpyrsa.com.mx"   # Cambiar por tu clave real
+
+# === APLICACIÓN ===
+dolibarr:
+  version: "17.0.1"
+  download_url: "https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz"
+  git_repo: "https://github.com/Dolibarr/dolibarr"
+
+sellyoursaas:
+  git_repo: "https://github.com/dolicloud/sellyoursaas"
+  branch: "master"
+  cookie_key: "{{ ansible_hostname }}-{{ ansible_date_time.epoch }}"  # Se genera automáticamente
+
+# === BASE DE DATOS ===
+database:
+  host: "{{ master_server.ip }}"
+  port: 3306
+  main_db: "dolibarr_main"  # Base de datos principal como en main.md
+  user: "sellyoursaas"
+  password: "p123p123"
+  root_password: "p123p123"
+
+maxscale:
+  version: "22.08.7"
+  download_url: "https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb"
+
+# === CONFIGURACIÓN PHP ===
+php:
+  version: "7.4"
+  memory_limit: "512M"
+  upload_max_filesize: "50M"
+  post_max_size: "50M"
+  max_execution_time: 300
+
+# === DIRECTORIOS ===
+directories:
+  # Directorios principales
+  wwwroot: "/home/{{ system_users.app_admin }}/wwwroot"
+  logs: "/home/{{ system_users.app_admin }}/logs"
+  backup: "/home/{{ system_users.app_admin }}/backup"
+  documents: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents"
+  
+  # Directorios de montaje (como en main.md)
+  diskhome: "/mnt/diskhome"
+  diskbackup: "/mnt/diskbackup"
+  
+  # Directorios específicos para deployment
+  instances: "/mnt/diskhome/home"  # Donde se crean las instancias
+  jail: "/home/jail"
+  archives_test: "/mnt/diskbackup/archives-test"
+  archives_paid: "/mnt/diskbackup/archives-paid"
+  
+  # Directorios de SellYourSaas
+  scripts: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_sellyoursaas/scripts"
+  templates: "/home/{{ system_users.app_admin }}/templates"
+  backups: "/mnt/diskbackup/backup"
+  
+  # NFS mount point
+  nfs_mount: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas"
+
+# === NFS ===
+nfs:
+  # En master: exportar backup
+  export_path: "{{ directories.backups }}"
+  export_options: "{{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)"
+  
+  # En deployment: montar desde master
+  master_export: "{{ master_server.ip }}:{{ directories.backups }}"
+  mount_point: "{{ directories.nfs_mount }}"
+
+# === EMAIL Y NOTIFICACIONES ===
+email:
+  smtp_server: "localhost"
+  smtp_port: 25
+  from: "soporte@{{ master_server.domain }}"
+
+notifications:
+  email: "admin@{{ master_server.domain }}"
+
+# === PAQUETES A INSTALAR ===
+packages_basic:
+  - ntp
+  - git
+  - gzip
+  - zip
+  - zstd
+  - memcached
+  - ncdu
+  - duc
+  - iotop
+  - acl
+  - ufw
+  - sudo
+
+packages_database:
+  - mariadb-server
+  - mariadb-client
+
+packages_web:
+  - apache2
+  - apache2-bin
+  - lynx
+
+packages_php:
+  - php
+  - php-cli
+  - libapache2-mod-php
+  - php-fpm
+  - php-gd
+  - php-imap
+  - php-json
+  - php-ldap
+  - php-mysql
+  - php-curl
+  - php-memcached
+  - php-imagick
+  - php-geoip
+  - php-intl
+  - php-xml
+  - php-zip
+  - php-bz2
+  - php-ssh2
+  - php-mbstring
+  - php-soap
+  - php-readline
+  - php-xmlrpc
+  - php-pear
+  - php-dev
+  - libmcrypt-dev
+
+packages_security:
+  - libapache2-mod-apparmor
+  - apparmor
+  - apparmor-profiles
+  - apparmor-utils
+  - rkhunter
+  - chkrootkit
+  - spamc
+  - spamassassin
+  - clamdscan
+  - clamav-daemon
+  - fail2ban
+  - watchdog
+  - cpulimit
+  - libapache2-mpm-itk
+
+packages_additional:
+  - bind9
+  - libreoffice-common
+  - libreoffice-writer
+  - mailutils
+  - postfix
+  - snapd
+
+# === MÓDULOS APACHE ===
+apache_modules:
+  - actions
+  - alias
+  - asis
+  - auth_basic
+  - auth_digest
+  - authn_anon
+  - authn_dbd
+  - authn_dbm
+  - authn_file
+  - authz_dbm
+  - authz_groupfile
+  - authz_host
+  - authz_owner
+  - authz_user
+  - autoindex
+  - cache
+  - cgid
+  - cgi
+  - charset_lite
+  - dav_fs
+  - dav
+  - dav_lock
+  - dbd
+  - deflate
+  - dir
+  - dump_io
+  - env
+  - expires
+  - ext_filter
+  - file_cache
+  - filter
+  - headers
+  - http2
+  - ident
+  - include
+  - info
+  - ldap
+  - mem_cache
+  - mime
+  - mime_magic
+  - negotiation
+  - reqtimeout
+  - rewrite
+  - setenvif
+  - speling
+  - ssl
+  - status
+  - substitute
+  - suexec
+  - unique_id
+  - userdir
+  - usertrack
+  - vhost_alias
+  - mpm_itk
+  - mpm_prefork
+  - php7.4
+
+# === CONFIGURACIONES APACHE ===
+apache_configs:
+  - charset
+  - localized-error-pages
+  - other-vhosts-access-log
+  - security
+
+# === CRON JOBS ===
+cron_jobs:
+  master:
+    - name: "Backup MySQL system"
+      minute: "10"
+      hour: "0"
+      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1"
+    - name: "Set permissions"
+      minute: "0"
+      hour: "4"
+      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >{{ directories.logs }}/perms.log"
+    - name: "Backup backups"
+      minute: "40"
+      hour: "15"
+      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1"
+    - name: "Detect evil instances"
+      minute: "0"
+      hour: "9"
+      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1"
+  
+  deployment:
+    - name: "Clean instances"
+      minute: "40"
+      hour: "4"
+      day: "4"
+      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm"
+
+# === WATCHDOGS ===
+watchdog_services:
+  - apache_watchdog_launcher1
+  - apache_watchdog_launcher2
+  - apache_watchdog_launcher3
+  - smtp_watchdog_launcher1
+
+# === FAIL2BAN FILTERS (DEPLOYMENT) ===
+fail2ban_filters:
+  - email-dolibarr-ruleskoblacklist.conf
+  - email-dolibarr-ruleskoquota.conf
+  - email-dolibarr-rulesko.conf
+  - email-dolibarr-rulesall.conf
+  - email-dolibarr-rulesadmin.conf
+  - web-accesslog-limit403.conf
+  - web-dolibarr-rulespassforgotten.conf
+  - web-dolibarr-rulesbruteforce.conf
+  - web-dolibarr-ruleslimitpublic.conf
+  - web-dolibarr-rulesregisterinstance.conf
+
+# === FAIL2BAN JAILS ===
+fail2ban_jails_deployment:
+  - email-dolibarr-ruleskoblacklist.conf
+  - email-dolibarr-ruleskoquota.conf
+  - email-dolibarr-rulesko.conf
+  - email-dolibarr-rulesall.conf
+  - email-dolibarr-rulesadmin.conf
+  - web-accesslog-limit403.conf
+
+fail2ban_jails_master:
+  - web-dolibarr-rulespassforgotten.conf
+  - web-dolibarr-rulesbruteforce.conf
+  - web-dolibarr-ruleslimitpublic.conf
+  - web-dolibarr-rulesregisterinstance.conf
+
+# === ARCHIVOS DE LOG ===
+log_files:
+  root:
+    - /var/log/phpmail.log
+    - /var/log/phpsendmail.log
+    - /var/log/daemon.log
+  
+  admin:
+    - "{{ directories.documents }}/dolibarr_register.log"
+    - "{{ directories.documents }}/dolibarr.log"
+
+# === BLACKLIST FILES ===
+blacklist_files:
+  - blacklistmail
+  - blacklistip
+  - blacklistfrom
+  - blacklistcontent

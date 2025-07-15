@@ -1,0 +1,244 @@
+# =============================================================================
+# Configuración Watchdog y Supervisión en Master
+# =============================================================================
+---
+- name: "Configuración Watchdog Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear script de monitoreo de servicios"
+      blockinfile:
+        path: "{{ directories.scripts }}/service_monitor.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED SERVICE MONITOR"
+        block: |
+          #!/bin/bash
+          # Script de monitoreo de servicios SellYourSaas
+          
+          LOG_FILE="/var/log/service_monitor.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ master_server.hostname }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Función para enviar alerta
+          send_alert() {
+              echo "$2" | mail -s "ALERT: $1 en $HOSTNAME" $EMAIL
+              log_message "ALERT: $1"
+          }
+          
+          # Verificar servicios críticos
+          check_service() {
+              SERVICE=$1
+              if ! systemctl is-active --quiet $SERVICE; then
+                  send_alert "Servicio $SERVICE caído" "El servicio $SERVICE no está ejecutándose en $HOSTNAME"
+                  systemctl restart $SERVICE
+                  log_message "Reiniciando servicio $SERVICE"
+              fi
+          }
+          
+          # Verificar servicios
+          check_service apache2
+          check_service mariadb
+          check_service fail2ban
+          check_service nfs-kernel-server
+          
+          # Verificar espacio en disco
+          DISK_USAGE=$(df {{ directories.wwwroot }} | awk 'NR==2 {print $5}' | sed 's/%//')
+          if [ $DISK_USAGE -gt 80 ]; then
+              send_alert "Espacio en disco crítico" "El disco está al $DISK_USAGE% de capacidad en $HOSTNAME"
+          fi
+          
+          # Verificar memoria
+          MEM_USAGE=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+          if [ $MEM_USAGE -gt 90 ]; then
+              send_alert "Memoria crítica" "La memoria está al $MEM_USAGE% de uso en $HOSTNAME"
+          fi
+          
+          # Verificar conectividad con servidor de despliegue
+          if ! ping -c 3 {{ deployment_server.ip }} > /dev/null 2>&1; then
+              send_alert "Conectividad perdida" "No se puede conectar con el servidor de despliegue {{ deployment_server.ip }}"
+          fi
+          
+          # Verificar base de datos
+          if ! mysql -u{{ database.user }} -p{{ database.password }} -h{{ master_server.ip }} -e "SELECT 1" > /dev/null 2>&1; then
+              send_alert "Base de datos inaccesible" "No se puede conectar a la base de datos principal"
+          fi
+          
+          log_message "Verificación completada"
+
+    - name: "Crear script de backup automático"
+      blockinfile:
+        path: "{{ directories.scripts }}/backup.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED BACKUP SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script de backup automático SellYourSaas
+          
+          BACKUP_DIR="{{ directories.backups }}"
+          DATE=$(date +%Y%m%d_%H%M%S)
+          LOG_FILE="/var/log/backup.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ master_server.hostname }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Crear directorio de backup del día
+          mkdir -p $BACKUP_DIR/$DATE
+          
+          log_message "Iniciando backup automático"
+          
+          # Backup de base de datos principal
+          mysqldump -u{{ database.user }} -p{{ database.password }} \
+              --single-transaction --routines --triggers \
+              {{ database.main_db }} > $BACKUP_DIR/$DATE/dolibarr_main_$DATE.sql
+          
+          if [ $? -eq 0 ]; then
+              log_message "Backup de base de datos principal completado"
+          else
+              log_message "ERROR: Backup de base de datos principal falló"
+              echo "Error en backup de BD principal" | mail -s "ERROR Backup $HOSTNAME" $EMAIL
+          fi
+          
+          # Backup de archivos de configuración
+          tar -czf $BACKUP_DIR/$DATE/config_$DATE.tar.gz \
+              {{ directories.wwwroot }}/dolibarr/htdocs/conf \
+              {{ directories.wwwroot }}/dolibarr/documents \
+              /etc/apache2/sites-available \
+              /etc/mysql/mariadb.conf.d \
+              /etc/fail2ban/jail.local
+          
+          if [ $? -eq 0 ]; then
+              log_message "Backup de configuración completado"
+          else
+              log_message "ERROR: Backup de configuración falló"
+          fi
+          
+          # Comprimir backup
+          cd $BACKUP_DIR
+          tar -czf backup_$DATE.tar.gz $DATE/
+          rm -rf $DATE/
+          
+          # Eliminar backups antiguos (mantener 7 días)
+          find $BACKUP_DIR -name "backup_*.tar.gz" -mtime +7 -delete
+          
+          log_message "Backup automático completado - Archivo: backup_$DATE.tar.gz"
+
+    - name: "Crear script de limpieza automática"
+      blockinfile:
+        path: "{{ directories.scripts }}/cleanup.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED CLEANUP SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script de limpieza automática
+          
+          LOG_FILE="/var/log/cleanup.log"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          log_message "Iniciando limpieza automática"
+          
+          # Limpiar logs antiguos
+          find /var/log -name "*.log" -mtime +30 -delete
+          find /var/log -name "*.log.*" -mtime +7 -delete
+          
+          # Limpiar archivos temporales
+          find /tmp -type f -mtime +7 -delete
+          find /var/tmp -type f -mtime +7 -delete
+          
+          # Limpiar cache de APT
+          apt-get clean
+          
+          # Optimizar base de datos
+          mysqlcheck -u{{ database.user }} -p{{ database.password }} \
+              --optimize --all-databases
+          
+          log_message "Limpieza automática completada"
+
+    - name: "Configurar cron para monitoreo cada 5 minutos"
+      cron:
+        name: "Monitoreo de servicios"
+        minute: "*/5"
+        job: "{{ directories.scripts }}/service_monitor.sh"
+        user: root
+
+    - name: "Configurar cron para backup diario"
+      cron:
+        name: "Backup automático diario"
+        minute: "0"
+        hour: "2"
+        job: "{{ directories.scripts }}/backup.sh"
+        user: root
+
+    - name: "Configurar cron para limpieza semanal"
+      cron:
+        name: "Limpieza automática semanal"
+        minute: "0"
+        hour: "3"
+        weekday: "0"
+        job: "{{ directories.scripts }}/cleanup.sh"
+        user: root
+
+    - name: "Configurar logrotate para logs personalizados"
+      blockinfile:
+        path: /etc/logrotate.d/sellyoursaas
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS LOGROTATE"
+        block: |
+          /var/log/service_monitor.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+          
+          /var/log/backup.log {
+              weekly
+              rotate 12
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+          
+          /var/log/cleanup.log {
+              monthly
+              rotate 6
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+
+    - name: "Verificar que los directorios de logs existen"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - /var/log/service_monitor.log
+        - /var/log/backup.log
+        - /var/log/cleanup.log

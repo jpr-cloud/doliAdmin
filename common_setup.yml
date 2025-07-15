@@ -1,0 +1,350 @@
+# =============================================================================
+# Configuración Común para Master y Deployment
+# =============================================================================
+---
+- name: "Configuración común para todos los servidores SellYourSaas"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CONFIGURACIÓN INICIAL DEL SISTEMA ===
+    - name: "Establecer hostname del servidor"
+      hostname:
+        name: "{{ master_server.hostname if server_type == 'master' else deployment_server.hostname }}"
+
+    - name: "Actualizar /etc/hosts"
+      blockinfile:
+        path: /etc/hosts
+        block: |
+          # SellYourSaas Infrastructure
+          {{ master_server.ip }}     {{ master_server.hostname }}
+          {{ deployment_server.ip }} {{ deployment_server.hostname }}
+        marker: "# {mark} ANSIBLE MANAGED SellYourSaas HOSTS"
+
+    - name: "Establecer shell por defecto a bash"
+      file:
+        src: /bin/bash
+        dest: /usr/bin/sh
+        state: link
+        force: yes
+
+    - name: "Desactivar actualizaciones automáticas"
+      package:
+        name: unattended-upgrades
+        state: absent
+
+    # === USUARIOS Y GRUPOS ===
+    - name: "Crear grupo admin"
+      group:
+        name: admin
+        state: present
+
+    - name: "Crear usuario admin"
+      user:
+        name: "{{ system_users.app_admin }}"
+        group: admin
+        shell: /usr/bin/bash
+        create_home: yes
+        state: present
+
+    - name: "Crear usuario de sistema"
+      user:
+        name: "{{ system_users.unix_admin }}"
+        shell: /usr/bin/bash
+        create_home: yes
+        state: present
+
+    - name: "Establecer contraseña para root"
+      user:
+        name: root
+        password: "{{ system_users.passwords.root | password_hash('sha512') }}"
+
+    - name: "Establecer contraseña para admin"
+      user:
+        name: "{{ system_users.app_admin }}"
+        password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
+
+    # === DIRECTORIOS DE TRABAJO ===
+    - name: "Crear directorios de logs"
+      file:
+        path: "{{ directories.logs }}"
+        state: directory
+        owner: root
+        group: admin
+        mode: '0770'
+
+    - name: "Crear directorios de wwwroot"
+      file:
+        path: "{{ directories.wwwroot }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+
+    - name: "Crear directorios de backup"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+      loop:
+        - "{{ directories.backup }}"
+        - "{{ directories.backup }}/conf"
+        - "{{ directories.backup }}/mysql"
+
+    - name: "Crear puntos de montaje para almacenamiento"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+      loop:
+        - /mnt/diskhome
+        - /mnt/diskbackup
+
+    - name: "Crear directorio de backup en almacenamiento"
+      file:
+        path: /mnt/diskhome/backup
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+
+    - name: "Crear enlace simbólico para backup"
+      file:
+        src: /mnt/diskhome/backup
+        dest: /mnt/diskbackup/backup
+        state: link
+        force: yes
+
+    - name: "Crear directorio de documentos de Dolibarr"
+      file:
+        path: "{{ directories.documents }}/sellyoursaas/spam"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+        recurse: yes
+
+    # === INSTALACIÓN DE PAQUETES ===
+    - name: "Actualizar cache de paquetes"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: "Instalar paquetes básicos"
+      package:
+        name: "{{ packages_basic }}"
+        state: present
+
+    - name: "Instalar paquetes de base de datos"
+      package:
+        name: "{{ packages_database }}"
+        state: present
+
+    - name: "Instalar paquetes web"
+      package:
+        name: "{{ packages_web }}"
+        state: present
+
+    - name: "Instalar paquetes PHP"
+      package:
+        name: "{{ packages_php }}"
+        state: present
+
+    - name: "Instalar paquetes de seguridad"
+      package:
+        name: "{{ packages_security }}"
+        state: present
+
+    - name: "Instalar paquetes adicionales"
+      package:
+        name: "{{ packages_additional }}"
+        state: present
+
+    # === CONFIGURACIÓN SSH ===
+    - name: "Configurar permisos SSH config"
+      file:
+        path: /etc/ssh/sshd_config
+        mode: '0644'
+
+    - name: "Crear directorio sshd_config.d"
+      file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: '0755'
+
+    - name: "Configurar SSH para SellYourSaas"
+      blockinfile:
+        path: /etc/ssh/sshd_config.d/sellyoursaas.conf
+        create: yes
+        block: |
+          # Configuration for SellYourSaas SSH
+          Port 22
+          Protocol 2
+          PermitRootLogin yes
+          PubkeyAuthentication yes
+          AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys_support
+          PermitEmptyPasswords no
+          X11Forwarding no
+          AllowTcpForwarding yes
+          ClientAliveInterval 60
+          ClientAliveCountMax 3
+          AllowUsers root {{ system_users.app_admin }} {{ system_users.unix_admin }}
+        marker: "# {mark} ANSIBLE MANAGED SSH CONFIG"
+      notify: restart sshd
+
+    - name: "Configurar sudoers para usuario de sistema"
+      blockinfile:
+        path: "/etc/sudoers.d/{{ system_users.unix_admin }}"
+        create: yes
+        mode: '0440'
+        block: |
+          # User privileges for {{ system_users.unix_admin }}
+          {{ system_users.unix_admin }} ALL=(ALL:ALL) ALL
+        marker: "# {mark} ANSIBLE MANAGED SUDOERS"
+        validate: 'visudo -cf %s'
+
+    # === CONFIGURACIÓN APACHE ===
+    - name: "Habilitar módulos de Apache"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      notify: restart apache2
+
+    - name: "Habilitar configuraciones de Apache"
+      command: "a2enconf {{ item }}"
+      loop:
+        - charset
+        - localized-error-pages
+        - other-vhosts-access-log
+        - security
+      notify: restart apache2
+      changed_when: false
+
+    - name: "Configurar seguridad de Apache"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/security.conf
+        block: |
+          # SellYourSaas Security Configuration
+          ServerTokens Prod
+          ServerSignature Off
+        marker: "# {mark} ANSIBLE MANAGED SECURITY"
+      notify: restart apache2
+
+    # === CONFIGURACIÓN PHP ===
+    - name: "Configurar PHP memory_limit"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^memory_limit ='
+        line: "memory_limit = {{ php.memory_limit }}"
+      notify: restart apache2
+
+    - name: "Configurar PHP upload_max_filesize"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^upload_max_filesize ='
+        line: "upload_max_filesize = {{ php.upload_max_filesize }}"
+      notify: restart apache2
+
+    - name: "Configurar PHP post_max_size"
+      lineinfile:
+        path: "/etc/php/{{ php.version }}/apache2/php.ini"
+        regexp: '^post_max_size ='
+        line: "post_max_size = {{ php.post_max_size }}"
+      notify: restart apache2
+
+    # === DESCARGAR CÓDIGO FUENTE ===
+    - name: "Clonar repositorio Dolibarr"
+      git:
+        repo: "{{ dolibarr.git_repo }}"
+        dest: "{{ directories.wwwroot }}/dolibarr"
+        version: "{{ dolibarr.version }}"
+        force: yes
+      become_user: "{{ system_users.app_admin }}"
+
+    - name: "Establecer permisos para Dolibarr"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr"
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        recurse: yes
+
+    - name: "Clonar repositorio SellYourSaas"
+      git:
+        repo: "{{ sellyoursaas.git_repo }}"
+        dest: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+        version: "{{ sellyoursaas.branch }}"
+        force: yes
+      become_user: "{{ system_users.app_admin }}"
+
+    # === CONFIGURACIÓN DE ARCHIVOS DE CONFIGURACIÓN ===
+    - name: "Crear archivo sellyoursaas.conf"
+      file:
+        path: /etc/sellyoursaas.conf
+        state: touch
+        owner: root
+        group: admin
+        mode: '0640'
+
+    - name: "Crear archivo sellyoursaas-public.conf"
+      file:
+        path: /etc/sellyoursaas-public.conf
+        state: touch
+        owner: root
+        group: admin
+        mode: '0644'
+
+    - name: "Crear directorio sellyoursaas.d"
+      file:
+        path: /etc/sellyoursaas.d
+        state: directory
+        mode: '0755'
+
+    # === CONFIGURACIÓN FAIL2BAN ===
+    - name: "Crear configuración básica de Fail2ban"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        create: yes
+        block: |
+          [DEFAULT]
+          bantime = 3600
+          findtime = 600
+          maxretry = 3
+          
+          [sshd]
+          enabled = true
+          
+          [apache-auth]
+          enabled = true
+          
+          [apache-badbots]
+          enabled = true
+          
+          [apache-noscript]
+          enabled = true
+          
+          [apache-overflows]
+          enabled = true
+        marker: "# {mark} ANSIBLE MANAGED FAIL2BAN"
+      notify: restart fail2ban
+
+  handlers:
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted

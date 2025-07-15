@@ -1,0 +1,199 @@
+# =============================================================================
+# Configuración Fail2ban en Deploy
+# =============================================================================
+---
+- name: "Configuración Fail2ban Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar jail personalizado para SSH en deploy"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SSH JAIL DEPLOY"
+        block: |
+          [sshd]
+          enabled = true
+          port = {{ ssh_config.port }}
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 3600
+          findtime = 600
+
+    - name: "Configurar jail para Apache en instancias"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED APACHE INSTANCES JAIL"
+        block: |
+          [apache-auth-instances]
+          enabled = true
+          port = http,https
+          filter = apache-auth
+          logpath = /var/log/apache2/*_error.log
+          maxretry = 5
+          bantime = 3600
+          findtime = 600
+
+          [apache-badbots-instances]
+          enabled = true
+          port = http,https
+          filter = apache-badbots
+          logpath = /var/log/apache2/*_access.log
+          maxretry = 2
+          bantime = 86400
+
+          [apache-noscript-instances]
+          enabled = true
+          port = http,https
+          filter = apache-noscript
+          logpath = /var/log/apache2/*_access.log
+          maxretry = 6
+          bantime = 86400
+
+    - name: "Crear filtro personalizado para ataques a instancias Dolibarr"
+      blockinfile:
+        path: /etc/fail2ban/filter.d/dolibarr-instances.conf
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED DOLIBARR INSTANCES FILTER"
+        block: |
+          [Definition]
+          failregex = ^<HOST> -.*POST.*/index\.php.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*POST.*/dologin\.php.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*GET.*/admin/.*HTTP/1\.\d" 40[13]
+                      ^<HOST> -.*POST.*/passwordforgotten\.php.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*GET.*\.\.\/.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*GET.*\/\?.*union.*select.*HTTP/1\.\d"
+                      ^<HOST> -.*GET.*\/\?.*script.*HTTP/1\.\d"
+          ignoreregex =
+
+    - name: "Configurar jail específico para instancias Dolibarr"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED DOLIBARR INSTANCES JAIL"
+        block: |
+          [dolibarr-instances]
+          enabled = true
+          port = http,https
+          filter = dolibarr-instances
+          logpath = /var/log/apache2/*_access.log
+          maxretry = 3
+          bantime = 7200
+          findtime = 300
+
+    - name: "Crear filtro para detección de bots maliciosos"
+      blockinfile:
+        path: /etc/fail2ban/filter.d/apache-scan-instances.conf
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SCAN FILTER"
+        block: |
+          [Definition]
+          failregex = ^<HOST> -.*GET.*\/\..*HTTP/1\.\d" 40[34]
+                      ^<HOST> -.*GET.*\/admin\/.*HTTP/1\.\d" 40[13]
+                      ^<HOST> -.*GET.*\/config.*HTTP/1\.\d" 40[13]
+                      ^<HOST> -.*GET.*\/wp-.*HTTP/1\.\d" 40[34]
+                      ^<HOST> -.*GET.*\/phpmyadmin.*HTTP/1\.\d" 40[34]
+                      ^<HOST> -.*GET.*\/xmlrpc\.php.*HTTP/1\.\d"
+          ignoreregex =
+
+    - name: "Configurar jail para detección de escaneos"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED SCAN JAIL"
+        block: |
+          [apache-scan-instances]
+          enabled = true
+          port = http,https
+          filter = apache-scan-instances
+          logpath = /var/log/apache2/*_access.log
+          maxretry = 5
+          bantime = 86400
+          findtime = 60
+
+    - name: "Configurar IPs permitidas y configuración global"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED DEPLOY WHITELIST"
+        insertafter: "^\[DEFAULT\]"
+        block: |
+          # IPs siempre permitidas en servidor de deployment
+          ignoreip = 127.0.0.1/8 ::1 {{ master_server.ip }} {{ deployment_server.ip }}
+          
+          # Configuración específica para deployment
+          bantime = 3600
+          findtime = 600
+          maxretry = 3
+          backend = auto
+          usedns = warn
+          destemail = {{ notifications.email }}
+          sendername = Fail2Ban-{{ deployment_server.hostname }}
+          mta = sendmail
+          action = %(action_mwl)s
+
+    - name: "Crear script de monitoreo de Fail2ban"
+      blockinfile:
+        path: "{{ directories.scripts }}/fail2ban_monitor.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED FAIL2BAN MONITOR"
+        block: |
+          #!/bin/bash
+          # Script de monitoreo de Fail2ban para deployment
+          
+          LOG_FILE="/var/log/fail2ban_monitor.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ deployment_server.hostname }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Obtener estadísticas de IPs baneadas
+          BANNED_COUNT=$(fail2ban-client status | grep "Currently banned" | awk '{print $4}')
+          
+          # Si hay más de 10 IPs baneadas, reportar
+          if [ "$BANNED_COUNT" -gt 10 ]; then
+              BANNED_LIST=$(fail2ban-client status | grep -A 20 "Jail list")
+              echo "Alerta: $BANNED_COUNT IPs baneadas en $HOSTNAME\n\n$BANNED_LIST" | \
+                  mail -s "ALERT: Alto número de IPs baneadas" $EMAIL
+              log_message "ALERT: $BANNED_COUNT IPs baneadas reportadas"
+          fi
+          
+          # Verificar que fail2ban esté ejecutándose
+          if ! systemctl is-active --quiet fail2ban; then
+              echo "Fail2ban no está ejecutándose en $HOSTNAME" | \
+                  mail -s "CRITICAL: Fail2ban caído" $EMAIL
+              log_message "CRITICAL: Fail2ban no está ejecutándose"
+              systemctl restart fail2ban
+          fi
+          
+          log_message "Monitoreo completado - $BANNED_COUNT IPs baneadas"
+
+    - name: "Configurar cron para monitoreo de Fail2ban"
+      cron:
+        name: "Monitoreo Fail2ban deployment"
+        minute: "*/30"
+        job: "{{ directories.scripts }}/fail2ban_monitor.sh"
+        user: root
+
+    - name: "Iniciar y habilitar Fail2ban"
+      systemd:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+    - name: "Reiniciar Fail2ban para aplicar configuración"
+      systemd:
+        name: fail2ban
+        state: restarted
+
+    - name: "Crear archivo de log para monitoreo"
+      file:
+        path: /var/log/fail2ban_monitor.log
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'

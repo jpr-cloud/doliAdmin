@@ -1,0 +1,123 @@
+# =============================================================================
+# Configuración Fail2ban en Master
+# =============================================================================
+---
+- name: "Configuración Fail2ban Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar jail personalizado para SSH"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SSH JAIL"
+        block: |
+          [sshd]
+          enabled = true
+          port = {{ ssh_config.port }}
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 3600
+          findtime = 600
+
+    - name: "Configurar jail para Apache"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED APACHE JAIL"
+        block: |
+          [apache-auth]
+          enabled = true
+          port = http,https
+          filter = apache-auth
+          logpath = /var/log/apache2/*error.log
+          maxretry = 5
+          bantime = 3600
+
+          [apache-badbots]
+          enabled = true
+          port = http,https
+          filter = apache-badbots
+          logpath = /var/log/apache2/*access.log
+          maxretry = 2
+          bantime = 86400
+
+          [apache-noscript]
+          enabled = true
+          port = http,https
+          filter = apache-noscript
+          logpath = /var/log/apache2/*access.log
+          maxretry = 6
+          bantime = 86400
+
+    - name: "Configurar jail para MySQL"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED MYSQL JAIL"
+        block: |
+          [mysqld-auth]
+          enabled = true
+          filter = mysqld-auth
+          port = 3306
+          logpath = /var/log/mysql/error.log
+          maxretry = 5
+          bantime = 3600
+
+    - name: "Crear filtro personalizado para Dolibarr"
+      blockinfile:
+        path: /etc/fail2ban/filter.d/dolibarr.conf
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED DOLIBARR FILTER"
+        block: |
+          [Definition]
+          failregex = ^<HOST> -.*POST.*/index\.php.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*POST.*/dologin\.php.*HTTP/1\.\d" 40[01]
+                      ^<HOST> -.*GET.*/admin/.*HTTP/1\.\d" 40[13]
+          ignoreregex =
+
+    - name: "Configurar jail para Dolibarr"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED DOLIBARR JAIL"
+        block: |
+          [dolibarr]
+          enabled = true
+          port = http,https
+          filter = dolibarr
+          logpath = /var/log/apache2/*access.log
+          maxretry = 5
+          bantime = 3600
+          findtime = 600
+
+    - name: "Configurar IPs permitidas globalmente"
+      blockinfile:
+        path: /etc/fail2ban/jail.local
+        marker: "# {mark} ANSIBLE MANAGED WHITELIST"
+        insertafter: "^\[DEFAULT\]"
+        block: |
+          # IPs siempre permitidas
+          ignoreip = 127.0.0.1/8 ::1 {{ master_server.ip }} {{ deployment_server.ip }}
+          
+          # Configuración por defecto
+          bantime = 3600
+          findtime = 600
+          maxretry = 3
+          backend = auto
+          usedns = warn
+          destemail = {{ notifications.email }}
+          sendername = Fail2Ban-{{ master_server.hostname }}
+          mta = sendmail
+          action = %(action_mwl)s
+
+    - name: "Iniciar y habilitar Fail2ban"
+      systemd:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+    - name: "Reiniciar Fail2ban para aplicar configuración"
+      systemd:
+        name: fail2ban
+        state: restarted

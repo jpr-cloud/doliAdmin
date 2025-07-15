@@ -1,0 +1,94 @@
+# =============================================================================
+# Configuración Certbot/SSL en Master
+# =============================================================================
+---
+- name: "Configuración Certbot Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar certificados SSL para dominios principales"
+      command: >
+        certbot --apache
+        --non-interactive
+        --agree-tos
+        --email {{ notifications.email }}
+        --domains admin.{{ master_server.domain }},myaccount.{{ master_server.domain }}
+        --redirect
+      register: certbot_result
+      changed_when: certbot_result.rc == 0
+      failed_when: certbot_result.rc != 0 and "already exists" not in certbot_result.stderr
+      ignore_errors: yes
+
+    - name: "Configurar certificado wildcard para subdominio de instancias"
+      command: >
+        certbot certonly
+        --apache
+        --non-interactive
+        --agree-tos
+        --email {{ notifications.email }}
+        --domains {{ deployment_server.domain }},*.{{ deployment_server.domain }}
+        --expand
+      register: wildcard_result
+      changed_when: wildcard_result.rc == 0
+      failed_when: wildcard_result.rc != 0 and "already exists" not in wildcard_result.stderr
+      ignore_errors: yes
+
+    - name: "Verificar configuración SSL de Apache para admin"
+      blockinfile:
+        path: "/etc/apache2/sites-available/admin.{{ master_server.domain }}-le-ssl.conf"
+        marker: "# {mark} ANSIBLE MANAGED SSL CONFIG"
+        block: |
+          # Configuración SSL adicional para SellYourSaas
+          SSLEngine on
+          SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+          SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+          SSLHonorCipherOrder off
+          SSLSessionTickets off
+          
+          # HSTS (opcional)
+          Header always set Strict-Transport-Security "max-age=63072000"
+      when: certbot_result.rc == 0
+
+    - name: "Verificar configuración SSL de Apache para myaccount"
+      blockinfile:
+        path: "/etc/apache2/sites-available/myaccount.{{ master_server.domain }}-le-ssl.conf"
+        marker: "# {mark} ANSIBLE MANAGED SSL CONFIG"
+        block: |
+          # Configuración SSL adicional para SellYourSaas
+          SSLEngine on
+          SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+          SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+          SSLHonorCipherOrder off
+          SSLSessionTickets off
+          
+          # HSTS (opcional)
+          Header always set Strict-Transport-Security "max-age=63072000"
+      when: certbot_result.rc == 0
+
+    - name: "Configurar renovación automática de certificados"
+      cron:
+        name: "Renovar certificados SSL"
+        minute: "0"
+        hour: "12"
+        job: "/usr/bin/certbot renew --quiet"
+        user: root
+
+    - name: "Probar renovación de certificados"
+      command: certbot renew --dry-run
+      register: renew_test
+      changed_when: false
+      failed_when: renew_test.rc != 0
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de prueba de renovación"
+      debug:
+        msg: "Prueba de renovación: {{ renew_test.stdout }}"
+      when: renew_test.rc == 0
+
+    - name: "Reiniciar Apache para aplicar cambios SSL"
+      systemd:
+        name: apache2
+        state: restarted
+      when: certbot_result.rc == 0 or wildcard_result.rc == 0

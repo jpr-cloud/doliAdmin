@@ -1,0 +1,210 @@
+# =============================================================================
+# Configuración Apache en Deploy
+# =============================================================================
+---
+- name: "Configuración Apache Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Habilitar módulos de Apache para deployment"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      notify: restart apache2
+
+    - name: "Habilitar configuraciones de Apache"
+      command: "a2enconf {{ item }}"
+      loop: "{{ apache_configs }}"
+      notify: restart apache2
+      changed_when: false
+
+    - name: "Configurar Virtual Host template para instancias"
+      blockinfile:
+        path: "/etc/apache2/sites-available/instance-template.conf"
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED INSTANCE TEMPLATE"
+        block: |
+          # Template para instancias de SellYourSaas
+          <VirtualHost *:80>
+              ServerName INSTANCE_DOMAIN
+              DocumentRoot {{ directories.instances }}/INSTANCE_NAME/htdocs
+              
+              <Directory {{ directories.instances }}/INSTANCE_NAME/htdocs>
+                  AllowOverride All
+                  Require all granted
+                  
+                  # Configuración PHP específica para instancias
+                  php_admin_value open_basedir "{{ directories.instances }}/INSTANCE_NAME:/tmp"
+                  php_admin_value upload_tmp_dir "{{ directories.instances }}/INSTANCE_NAME/tmp"
+                  php_admin_value session.save_path "{{ directories.instances }}/INSTANCE_NAME/tmp"
+              </Directory>
+              
+              # Directorio de archivos subidos
+              Alias /documents {{ directories.instances }}/INSTANCE_NAME/documents
+              <Directory {{ directories.instances }}/INSTANCE_NAME/documents>
+                  Options -Indexes
+                  AllowOverride None
+                  Require all denied
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/INSTANCE_NAME_error.log
+              CustomLog ${APACHE_LOG_DIR}/INSTANCE_NAME_access.log combined
+              
+              # Configuración de seguridad
+              Header always set X-Content-Type-Options nosniff
+              Header always set X-Frame-Options DENY
+              Header always set X-XSS-Protection "1; mode=block"
+          </VirtualHost>
+
+    - name: "Configurar Virtual Host SSL template para instancias"
+      blockinfile:
+        path: "/etc/apache2/sites-available/instance-ssl-template.conf"
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SSL INSTANCE TEMPLATE"
+        block: |
+          # Template SSL para instancias de SellYourSaas
+          <VirtualHost *:443>
+              ServerName INSTANCE_DOMAIN
+              DocumentRoot {{ directories.instances }}/INSTANCE_NAME/htdocs
+              
+              SSLEngine on
+              SSLCertificateFile /etc/letsencrypt/live/{{ deployment_server.domain }}/fullchain.pem
+              SSLCertificateKeyFile /etc/letsencrypt/live/{{ deployment_server.domain }}/privkey.pem
+              
+              # Configuración SSL moderna
+              SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+              SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+              SSLHonorCipherOrder off
+              SSLSessionTickets off
+              
+              # HSTS
+              Header always set Strict-Transport-Security "max-age=63072000"
+              
+              <Directory {{ directories.instances }}/INSTANCE_NAME/htdocs>
+                  AllowOverride All
+                  Require all granted
+                  
+                  # Configuración PHP específica para instancias
+                  php_admin_value open_basedir "{{ directories.instances }}/INSTANCE_NAME:/tmp"
+                  php_admin_value upload_tmp_dir "{{ directories.instances }}/INSTANCE_NAME/tmp"
+                  php_admin_value session.save_path "{{ directories.instances }}/INSTANCE_NAME/tmp"
+              </Directory>
+              
+              # Directorio de archivos subidos
+              Alias /documents {{ directories.instances }}/INSTANCE_NAME/documents
+              <Directory {{ directories.instances }}/INSTANCE_NAME/documents>
+                  Options -Indexes
+                  AllowOverride None
+                  Require all denied
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/INSTANCE_NAME_ssl_error.log
+              CustomLog ${APACHE_LOG_DIR}/INSTANCE_NAME_ssl_access.log combined
+              
+              # Configuración de seguridad
+              Header always set X-Content-Type-Options nosniff
+              Header always set X-Frame-Options DENY
+              Header always set X-XSS-Protection "1; mode=block"
+          </VirtualHost>
+
+    - name: "Crear script para gestión de Virtual Hosts"
+      blockinfile:
+        path: "{{ directories.scripts }}/manage_vhost.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED VHOST SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script para gestionar Virtual Hosts de instancias
+          
+          ACTION=$1
+          INSTANCE_NAME=$2
+          INSTANCE_DOMAIN=$3
+          
+          TEMPLATE_HTTP="/etc/apache2/sites-available/instance-template.conf"
+          TEMPLATE_HTTPS="/etc/apache2/sites-available/instance-ssl-template.conf"
+          
+          LOG_FILE="/var/log/vhost_management.log"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          if [ "$ACTION" = "create" ]; then
+              # Crear Virtual Host HTTP
+              sed "s/INSTANCE_NAME/$INSTANCE_NAME/g; s/INSTANCE_DOMAIN/$INSTANCE_DOMAIN/g" \
+                  $TEMPLATE_HTTP > "/etc/apache2/sites-available/$INSTANCE_DOMAIN.conf"
+              
+              # Crear Virtual Host HTTPS
+              sed "s/INSTANCE_NAME/$INSTANCE_NAME/g; s/INSTANCE_DOMAIN/$INSTANCE_DOMAIN/g" \
+                  $TEMPLATE_HTTPS > "/etc/apache2/sites-available/$INSTANCE_DOMAIN-ssl.conf"
+              
+              # Habilitar sitios
+              a2ensite "$INSTANCE_DOMAIN"
+              a2ensite "$INSTANCE_DOMAIN-ssl"
+              
+              # Recargar Apache
+              systemctl reload apache2
+              
+              log_message "Virtual Host creado para $INSTANCE_DOMAIN"
+              
+          elif [ "$ACTION" = "delete" ]; then
+              # Deshabilitar sitios
+              a2dissite "$INSTANCE_DOMAIN"
+              a2dissite "$INSTANCE_DOMAIN-ssl"
+              
+              # Eliminar archivos
+              rm -f "/etc/apache2/sites-available/$INSTANCE_DOMAIN.conf"
+              rm -f "/etc/apache2/sites-available/$INSTANCE_DOMAIN-ssl.conf"
+              
+              # Recargar Apache
+              systemctl reload apache2
+              
+              log_message "Virtual Host eliminado para $INSTANCE_DOMAIN"
+          else
+              echo "Uso: $0 {create|delete} instance_name instance_domain"
+              exit 1
+          fi
+
+    - name: "Configurar logrotate para logs de instancias"
+      blockinfile:
+        path: /etc/logrotate.d/apache-instances
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED INSTANCES LOGROTATE"
+        block: |
+          /var/log/apache2/*_error.log /var/log/apache2/*_access.log {
+              daily
+              rotate 14
+              compress
+              delaycompress
+              missingok
+              notifempty
+              sharedscripts
+              postrotate
+                  systemctl reload apache2 > /dev/null 2>&1 || true
+              endscript
+          }
+
+    - name: "Desactivar sitio por defecto"
+      command: a2dissite 000-default
+      notify: restart apache2
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Crear archivo de log para gestión de vhosts"
+      file:
+        path: /var/log/vhost_management.log
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0644'
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

@@ -1,0 +1,314 @@
+# =============================================================================
+# Configuración Watchdog y Supervisión en Deploy
+# =============================================================================
+---
+- name: "Configuración Watchdog Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear script de monitoreo de servicios para deployment"
+      blockinfile:
+        path: "{{ directories.scripts }}/service_monitor_deploy.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED SERVICE MONITOR DEPLOY"
+        block: |
+          #!/bin/bash
+          # Script de monitoreo de servicios para servidor de deployment
+          
+          LOG_FILE="/var/log/service_monitor_deploy.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ deployment_server.hostname }}"
+          MASTER_IP="{{ master_server.ip }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Función para enviar alerta
+          send_alert() {
+              echo "$2" | mail -s "ALERT DEPLOY: $1 en $HOSTNAME" $EMAIL
+              log_message "ALERT: $1"
+          }
+          
+          # Verificar servicios críticos
+          check_service() {
+              SERVICE=$1
+              if ! systemctl is-active --quiet $SERVICE; then
+                  send_alert "Servicio $SERVICE caído" "El servicio $SERVICE no está ejecutándose en $HOSTNAME"
+                  systemctl restart $SERVICE
+                  log_message "Reiniciando servicio $SERVICE"
+              fi
+          }
+          
+          # Verificar servicios en deployment
+          check_service apache2
+          check_service fail2ban
+          
+          # Verificar espacio en disco para instancias
+          DISK_USAGE=$(df {{ directories.instances }} | awk 'NR==2 {print $5}' | sed 's/%//')
+          if [ $DISK_USAGE -gt 85 ]; then
+              send_alert "Espacio crítico en instancias" "El disco de instancias está al $DISK_USAGE% en $HOSTNAME"
+          fi
+          
+          # Verificar memoria
+          MEM_USAGE=$(free | awk 'NR==2{printf "%.0f", $3*100/$2}')
+          if [ $MEM_USAGE -gt 90 ]; then
+              send_alert "Memoria crítica" "La memoria está al $MEM_USAGE% de uso en $HOSTNAME"
+          fi
+          
+          # Verificar conectividad con master
+          if ! ping -c 3 $MASTER_IP > /dev/null 2>&1; then
+              send_alert "Conectividad con master perdida" "No se puede conectar con el servidor master $MASTER_IP"
+          fi
+          
+          # Verificar acceso a base de datos del master
+          if ! mysql -u{{ database.user }} -p{{ database.password }} -h$MASTER_IP -e "SELECT 1" > /dev/null 2>&1; then
+              send_alert "Base de datos master inaccesible" "No se puede conectar a la base de datos del master"
+          fi
+          
+          # Verificar montaje NFS
+          if ! mountpoint -q {{ directories.nfs_mount }}; then
+              send_alert "NFS no montado" "El directorio NFS {{ directories.nfs_mount }} no está montado"
+              mount {{ directories.nfs_mount }}
+          fi
+          
+          # Verificar instancias activas
+          ACTIVE_INSTANCES=$(ls -1 {{ directories.instances }} | wc -l)
+          log_message "Instancias activas: $ACTIVE_INSTANCES"
+          
+          log_message "Verificación de deployment completada"
+
+    - name: "Crear script de monitoreo específico de instancias"
+      blockinfile:
+        path: "{{ directories.scripts }}/monitor_instances.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED INSTANCES MONITOR"
+        block: |
+          #!/bin/bash
+          # Script de monitoreo específico para instancias
+          
+          LOG_FILE="/var/log/instances_monitor.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ deployment_server.hostname }}"
+          INSTANCES_DIR="{{ directories.instances }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Función para enviar alerta
+          send_alert() {
+              echo "$2" | mail -s "ALERT INSTANCES: $1" $EMAIL
+              log_message "ALERT: $1"
+          }
+          
+          log_message "Iniciando monitoreo de instancias"
+          
+          TOTAL_INSTANCES=0
+          HEALTHY_INSTANCES=0
+          PROBLEMATIC_INSTANCES=""
+          
+          # Verificar cada instancia
+          for instance_dir in $INSTANCES_DIR/*/; do
+              if [ -d "$instance_dir" ]; then
+                  TOTAL_INSTANCES=$((TOTAL_INSTANCES + 1))
+                  instance_name=$(basename "$instance_dir")
+                  
+                  # Verificar que existe el directorio htdocs
+                  if [ ! -d "$instance_dir/htdocs" ]; then
+                      PROBLEMATIC_INSTANCES="$PROBLEMATIC_INSTANCES $instance_name(no-htdocs)"
+                      continue
+                  fi
+                  
+                  # Verificar que existe la configuración
+                  if [ ! -f "$instance_dir/htdocs/conf/conf.php" ]; then
+                      PROBLEMATIC_INSTANCES="$PROBLEMATIC_INSTANCES $instance_name(no-config)"
+                      continue
+                  fi
+                  
+                  # Verificar permisos del directorio documents
+                  if [ ! -w "$instance_dir/documents" ]; then
+                      PROBLEMATIC_INSTANCES="$PROBLEMATIC_INSTANCES $instance_name(perm-docs)"
+                      # Intentar corregir permisos
+                      chmod 775 "$instance_dir/documents"
+                      chown {{ system_users.app_admin }}:www-data "$instance_dir/documents"
+                  fi
+                  
+                  # Verificar espacio usado por la instancia
+                  INSTANCE_SIZE=$(du -sm "$instance_dir" | cut -f1)
+                  if [ $INSTANCE_SIZE -gt 1000 ]; then
+                      log_message "WARN: Instancia $instance_name usa ${INSTANCE_SIZE}MB"
+                  fi
+                  
+                  HEALTHY_INSTANCES=$((HEALTHY_INSTANCES + 1))
+              fi
+          done
+          
+          # Reportar estadísticas
+          log_message "Total de instancias: $TOTAL_INSTANCES"
+          log_message "Instancias saludables: $HEALTHY_INSTANCES"
+          
+          if [ -n "$PROBLEMATIC_INSTANCES" ]; then
+              send_alert "Instancias con problemas" "Instancias problemáticas en $HOSTNAME: $PROBLEMATIC_INSTANCES"
+          fi
+          
+          # Verificar uso total de espacio de instancias
+          TOTAL_SIZE=$(du -sm $INSTANCES_DIR | cut -f1)
+          log_message "Uso total de espacio de instancias: ${TOTAL_SIZE}MB"
+          
+          if [ $TOTAL_SIZE -gt 10000 ]; then
+              send_alert "Alto uso de espacio en instancias" "Las instancias usan ${TOTAL_SIZE}MB en $HOSTNAME"
+          fi
+          
+          log_message "Monitoreo de instancias completado"
+
+    - name: "Crear script de backup automático para deployment"
+      blockinfile:
+        path: "{{ directories.scripts }}/backup_deploy.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED BACKUP DEPLOY"
+        block: |
+          #!/bin/bash
+          # Script de backup para servidor de deployment
+          
+          BACKUP_DIR="{{ directories.backups }}/deployment"
+          DATE=$(date +%Y%m%d_%H%M%S)
+          LOG_FILE="/var/log/backup_deploy.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ deployment_server.hostname }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Crear directorio de backup
+          mkdir -p $BACKUP_DIR/$DATE
+          
+          log_message "Iniciando backup de deployment"
+          
+          # Backup de configuraciones críticas
+          tar -czf $BACKUP_DIR/$DATE/apache_config_$DATE.tar.gz \
+              /etc/apache2/sites-available \
+              /etc/apache2/sites-enabled \
+              {{ directories.scripts }}
+          
+          # Backup de instancias pequeñas (menos de 100MB)
+          cd {{ directories.instances }}
+          for instance_dir in */; do
+              if [ -d "$instance_dir" ]; then
+                  instance_name=$(basename "$instance_dir")
+                  instance_size=$(du -sm "$instance_dir" | cut -f1)
+                  
+                  if [ $instance_size -lt 100 ]; then
+                      tar -czf $BACKUP_DIR/$DATE/instance_${instance_name}_$DATE.tar.gz "$instance_dir"
+                      log_message "Backup de instancia pequeña: $instance_name (${instance_size}MB)"
+                  else
+                      # Solo backup de configuración para instancias grandes
+                      tar -czf $BACKUP_DIR/$DATE/instance_config_${instance_name}_$DATE.tar.gz \
+                          "$instance_dir/htdocs/conf"
+                      log_message "Backup de config para instancia grande: $instance_name (${instance_size}MB)"
+                  fi
+              fi
+          done
+          
+          # Comprimir backup final
+          cd $BACKUP_DIR
+          tar -czf deployment_backup_$DATE.tar.gz $DATE/
+          rm -rf $DATE/
+          
+          # Copiar backup al NFS si está disponible
+          if mountpoint -q {{ directories.nfs_mount }}; then
+              cp deployment_backup_$DATE.tar.gz {{ directories.nfs_mount }}/
+              log_message "Backup copiado al NFS"
+          fi
+          
+          # Eliminar backups locales antiguos (mantener 3 días)
+          find $BACKUP_DIR -name "deployment_backup_*.tar.gz" -mtime +3 -delete
+          
+          log_message "Backup de deployment completado: deployment_backup_$DATE.tar.gz"
+
+    - name: "Configurar cron para monitoreo de servicios cada 3 minutos"
+      cron:
+        name: "Monitoreo servicios deployment"
+        minute: "*/3"
+        job: "{{ directories.scripts }}/service_monitor_deploy.sh"
+        user: root
+
+    - name: "Configurar cron para monitoreo de instancias cada 10 minutos"
+      cron:
+        name: "Monitoreo de instancias"
+        minute: "*/10"
+        job: "{{ directories.scripts }}/monitor_instances.sh"
+        user: root
+
+    - name: "Configurar cron para backup diario"
+      cron:
+        name: "Backup deployment diario"
+        minute: "30"
+        hour: "3"
+        job: "{{ directories.scripts }}/backup_deploy.sh"
+        user: root
+
+    - name: "Configurar logrotate para logs de deployment"
+      blockinfile:
+        path: /etc/logrotate.d/deployment-monitor
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED DEPLOYMENT LOGROTATE"
+        block: |
+          /var/log/service_monitor_deploy.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+          
+          /var/log/instances_monitor.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+          
+          /var/log/backup_deploy.log {
+              weekly
+              rotate 12
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+
+    - name: "Crear archivos de log para deployment"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - /var/log/service_monitor_deploy.log
+        - /var/log/instances_monitor.log
+        - /var/log/backup_deploy.log
+
+    - name: "Crear directorio de backups para deployment"
+      file:
+        path: "{{ directories.backups }}/deployment"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
