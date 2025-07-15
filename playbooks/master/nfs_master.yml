@@ -1,0 +1,70 @@
+# =============================================================================
+# Configuración NFS Server en Master
+# =============================================================================
+---
+- name: "Configuración NFS Server"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear directorio de documentos de Dolibarr"
+      file:
+        path: "{{ directories.documents }}/sellyoursaas/spam"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0755'
+        recurse: yes
+
+    - name: "Establecer permisos para dolibarr_documents"
+      file:
+        path: "{{ directories.documents }}"
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        recurse: yes
+
+    - name: "Instalar nfs-kernel-server"
+      package:
+        name: nfs-kernel-server
+        state: present
+
+    - name: "Configurar /etc/exports para NFS"
+      blockinfile:
+        path: /etc/exports
+        create: yes
+        block: |
+          # NFS exports for SellYourSaas
+          {{ nfs.export_path }} {{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)
+        marker: "# {mark} ANSIBLE MANAGED NFS EXPORTS"
+      notify: restart nfs-kernel-server
+
+    - name: "Configurar opciones de nfs-kernel-server"
+      blockinfile:
+        path: /etc/default/nfs-kernel-server
+        block: |
+          # SellYourSaas NFS Configuration
+          RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"
+        marker: "# {mark} ANSIBLE MANAGED NFS OPTIONS"
+      notify: restart nfs-kernel-server
+
+    - name: "Habilitar y iniciar nfs-kernel-server"
+      systemd:
+        name: nfs-kernel-server
+        enabled: yes
+        state: started
+
+    - name: "Validar configuración NFS"
+      command: exportfs -v
+      register: nfs_exports
+      changed_when: false
+
+    - name: "Mostrar exportaciones NFS"
+      debug:
+        var: nfs_exports.stdout_lines
+
+  handlers:
+    - name: restart nfs-kernel-server
+      systemd:
+        name: nfs-kernel-server
+        state: restarted

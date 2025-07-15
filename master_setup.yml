@@ -1,0 +1,236 @@
+# =============================================================================
+# Configuración Específica del Servidor Master
+# =============================================================================
+---
+- name: "Configuración del servidor Master SellYourSaas"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CONFIGURACIÓN NFS SERVER ===
+    - name: "Instalar nfs-kernel-server"
+      package:
+        name: nfs-kernel-server
+        state: present
+
+    - name: "Configurar /etc/exports para NFS"
+      blockinfile:
+        path: /etc/exports
+        create: yes
+        block: |
+          # NFS exports for SellYourSaas
+          {{ nfs.export_path }} {{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)
+        marker: "# {mark} ANSIBLE MANAGED NFS EXPORTS"
+      notify: restart nfs-kernel-server
+
+    - name: "Configurar opciones de nfs-kernel-server"
+      blockinfile:
+        path: /etc/default/nfs-kernel-server
+        block: |
+          # SellYourSaas NFS Configuration
+          RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"
+        marker: "# {mark} ANSIBLE MANAGED NFS OPTIONS"
+      notify: restart nfs-kernel-server
+
+    - name: "Habilitar y iniciar nfs-kernel-server"
+      systemd:
+        name: nfs-kernel-server
+        enabled: yes
+        state: started
+
+    # === CONFIGURACIÓN MARIADB ===
+    - name: "Iniciar y habilitar MariaDB"
+      systemd:
+        name: mariadb
+        enabled: yes
+        state: started
+
+    - name: "Configurar contraseña root de MariaDB"
+      mysql_user:
+        name: root
+        password: "{{ database.root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: "Crear base de datos SellYourSaas"
+      mysql_db:
+        name: "{{ database.name }}"
+        state: present
+        login_user: root
+        login_password: "{{ database.root_password }}"
+
+    - name: "Crear usuario de base de datos SellYourSaas"
+      mysql_user:
+        name: "{{ database.user }}"
+        password: "{{ database.password }}"
+        priv: "{{ database.name }}.*:ALL"
+        host: "%"
+        state: present
+        login_user: root
+        login_password: "{{ database.root_password }}"
+
+    - name: "Crear usuario para deployment servers"
+      mysql_user:
+        name: "{{ database.user }}"
+        password: "{{ database.password }}"
+        priv: "{{ database.name }}.*:CREATE TEMPORARY TABLES,DELETE,INSERT,SELECT,UPDATE"
+        host: "{{ deployment_server.ip }}"
+        state: present
+        login_user: root
+        login_password: "{{ database.root_password }}"
+
+    # === CONFIGURACIÓN APACHE MASTER ===
+    - name: "Crear archivo .htpasswd para Apache"
+      htpasswd:
+        path: /etc/apache2/.htpasswd
+        name: "{{ system_users.app_admin }}"
+        password: "{{ system_users.passwords.admin }}"
+        owner: root
+        group: www-data
+        mode: 0640
+
+    - name: "Configurar Virtual Host para admin"
+      blockinfile:
+        path: /etc/apache2/sites-available/admin.{{ master_server.domain }}.conf
+        create: yes
+        block: |
+          <VirtualHost *:80>
+              ServerName admin.{{ master_server.domain }}
+              DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs
+              
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/admin_error.log
+              CustomLog ${APACHE_LOG_DIR}/admin_access.log combined
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED ADMIN VHOST"
+
+    - name: "Configurar Virtual Host para myaccount"
+      blockinfile:
+        path: /etc/apache2/sites-available/myaccount.{{ master_server.domain }}.conf
+        create: yes
+        block: |
+          <VirtualHost *:80>
+              ServerName myaccount.{{ master_server.domain }}
+              DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount
+              
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/myaccount_error.log
+              CustomLog ${APACHE_LOG_DIR}/myaccount_access.log combined
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED MYACCOUNT VHOST"
+
+    - name: "Crear enlaces simbólicos para SellYourSaas"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: yes
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+      loop:
+        - { src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas" }
+        - { src: "{{ directories.wwwroot }}/dolibarr/htdocs", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount/source" }
+        - { src: "{{ directories.wwwroot }}/dolibarr/htdocs/main.inc.php", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount/main.inc.php" }
+
+    - name: "Desactivar sitio por defecto"
+      command: a2dissite 000-default
+      notify: restart apache2
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar sitios de SellYourSaas"
+      command: "a2ensite {{ item }}"
+      loop:
+        - "admin.{{ master_server.domain }}"
+        - "myaccount.{{ master_server.domain }}"
+      notify: restart apache2
+      changed_when: false
+
+    # === CONFIGURACIÓN DE CRON JOBS MASTER ===
+    - name: "Configurar cron job para backup MySQL"
+      cron:
+        name: "Backup MySQL system"
+        minute: "10"
+        hour: "0"
+        job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1"
+        user: root
+
+    - name: "Configurar cron job para permisos"
+      cron:
+        name: "Set permissions"
+        minute: "0"
+        hour: "4"
+        job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >{{ directories.logs }}/perms.log"
+        user: root
+
+    - name: "Configurar cron job para backup de backups"
+      cron:
+        name: "Backup backups"
+        minute: "40"
+        hour: "15"
+        job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1"
+        user: root
+
+    - name: "Configurar cron job para detectar instancias maliciosas"
+      cron:
+        name: "Detect evil instances"
+        minute: "0"
+        hour: "9"
+        job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1"
+        user: root
+
+    # === CONFIGURACIÓN DE LOGROTATE ===
+    - name: "Configurar logrotate para Apache (365 días)"
+      replace:
+        path: /etc/logrotate.d/apache2
+        regexp: 'rotate \d+'
+        replace: 'rotate 365'
+
+    - name: "Crear configuración logrotate para logs de admin"
+      blockinfile:
+        path: /etc/logrotate.d/logrotate_admin_log
+        create: yes
+        block: |
+          {{ directories.logs }}/*.log {
+              daily
+              missingok
+              rotate 90
+              compress
+              delaycompress
+              notifempty
+              create 644 root admin
+          }
+        marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
+
+    # === CONFIGURACIÓN DE JOURNALD ===
+    - name: "Configurar tamaño máximo de journals"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: 'SystemMaxUse=100M'
+      notify: restart systemd-journald
+
+  handlers:
+    - name: restart nfs-kernel-server
+      systemd:
+        name: nfs-kernel-server
+        state: restarted
+
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted
+
+    - name: restart systemd-journald
+      systemd:
+        name: systemd-journald
+        state: restarted

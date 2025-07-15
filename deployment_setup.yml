@@ -1,0 +1,319 @@
+# =============================================================================
+# Configuración Específica del Servidor Deployment
+# =============================================================================
+---
+- name: "Configuración del servidor Deployment SellYourSaas"
+  hosts: deployment
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CONFIGURACIÓN NFS CLIENT ===
+    - name: "Instalar nfs-common"
+      package:
+        name: nfs-common
+        state: present
+
+    - name: "Configurar montaje automático NFS en /etc/fstab"
+      mount:
+        path: "{{ nfs.mount_point }}"
+        src: "{{ master_server.ip }}:{{ nfs.export_path }}"
+        fstype: nfs
+        opts: defaults
+        state: present
+
+    - name: "Montar sistema de archivos NFS"
+      mount:
+        path: "{{ nfs.mount_point }}"
+        src: "{{ master_server.ip }}:{{ nfs.export_path }}"
+        fstype: nfs
+        opts: defaults
+        state: mounted
+
+    # === CONFIGURACIÓN ESPECÍFICA DE DEPLOYMENT ===
+    - name: "Crear directorios específicos para deployment"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin if 'home' not in item else 'root' }}"
+        group: "{{ 'admin' if 'home' not in item else 'root' }}"
+        mode: '0755'
+      loop:
+        - /home/jail
+        - /mnt/diskhome/home
+        - /mnt/diskbackup/archives-test
+        - /mnt/diskbackup/archives-paid
+
+    - name: "Crear enlaces simbólicos para jail"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: yes
+      loop:
+        - { src: "/mnt/diskhome/home", dest: "/home/jail/home" }
+        - { src: "/mnt/diskbackup/backup", dest: "/home/jail/backup" }
+        - { src: "/mnt/diskbackup/archives-test", dest: "/home/jail/archives-test" }
+        - { src: "/mnt/diskbackup/archives-paid", dest: "/home/jail/archives-paid" }
+
+    # === CONFIGURACIÓN /etc/skel PARA NUEVOS USUARIOS ===
+    - name: "Crear directorio .ssh en skel"
+      file:
+        path: /etc/skel/.ssh
+        state: directory
+        mode: '0700'
+
+    - name: "Crear archivo authorized_keys_support en skel"
+      file:
+        path: /etc/skel/.ssh/authorized_keys_support
+        state: touch
+        mode: '0600'
+
+    - name: "Agregar configuración MySQL para nuevos usuarios"
+      blockinfile:
+        path: /etc/skel/.my.cnf
+        create: yes
+        block: |
+          [client]
+          protocol=tcp
+        marker: "# {mark} ANSIBLE MANAGED MYSQL CONFIG"
+
+    - name: "Agregar alias útiles en bashrc"
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          # SellYourSaas useful aliases
+          alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'
+        marker: "# {mark} ANSIBLE MANAGED ALIASES"
+
+    # === CONFIGURACIÓN APACHE PARA DEPLOYMENT ===
+    - name: "Crear directorios de configuración para virtual hosts de instancias"
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /etc/apache2/sellyoursaas-available
+        - /etc/apache2/sellyoursaas-online
+        - /etc/apache2/sellyoursaas-offline
+
+    - name: "Crear enlace simbólico para hosts habilitados"
+      file:
+        src: /etc/apache2/sellyoursaas-online
+        dest: /etc/apache2/sellyoursaas-enabled
+        state: link
+        force: yes
+
+    - name: "Agregar directiva para virtual hosts de instancias en apache2.conf"
+      blockinfile:
+        path: /etc/apache2/apache2.conf
+        block: |
+          # Include virtual hosts for SellYourSaas instances
+          IncludeOptional sellyoursaas-enabled/*.conf
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS VHOSTS"
+      notify: restart apache2
+
+    - name: "Configurar log por defecto para virtual hosts"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/other-vhosts-access-log.conf
+        block: |
+          # SellYourSaas default error log
+          ErrorLog ${APACHE_LOG_DIR}/instances_error.log
+        marker: "# {mark} ANSIBLE MANAGED DEFAULT ERROR LOG"
+      notify: restart apache2
+
+    # === CONFIGURACIÓN DEL AGENTE DE DEPLOYMENT ===
+    - name: "Crear enlace simbólico para remote_server_launcher"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+        dest: /etc/init.d/remote_server_launcher
+        state: link
+        force: yes
+
+    - name: "Crear servicio systemd para remote-server-launcher"
+      blockinfile:
+        path: /etc/systemd/system/remote-server-launcher.service
+        create: yes
+        block: |
+          [Unit]
+          Description=SellYourSaas Remote Server Launcher
+          After=network.target
+          
+          [Service]
+          Type=forking
+          ExecStart={{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh start
+          ExecStop={{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh stop
+          User=root
+          
+          [Install]
+          WantedBy=multi-user.target
+        marker: "# {mark} ANSIBLE MANAGED SERVICE"
+
+    - name: "Recargar systemd daemon"
+      systemd:
+        daemon_reload: yes
+
+    - name: "Habilitar servicio remote-server-launcher"
+      systemd:
+        name: remote-server-launcher
+        enabled: yes
+
+    # === CONFIGURACIÓN DE WATCHDOGS ===
+    - name: "Crear enlaces simbólicos para watchdogs de Apache"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/{{ item }}"
+        dest: "/etc/init.d/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - apache_watchdog_launcher1.sh
+        - apache_watchdog_launcher2.sh
+        - apache_watchdog_launcher3.sh
+        - smtp_watchdog_launcher1.sh
+
+    - name: "Habilitar servicios watchdog"
+      systemd:
+        name: "{{ item }}"
+        enabled: yes
+      loop:
+        - apache_watchdog_launcher1
+        - apache_watchdog_launcher2
+        - apache_watchdog_launcher3
+        - smtp_watchdog_launcher1
+
+    # === CONFIGURACIÓN DNS ===
+    - name: "Crear archivo de zona DNS para instancias"
+      blockinfile:
+        path: "/etc/bind/{{ deployment_server.wildcard_subdomain }}.{{ master_server.domain }}.hosts"
+        create: yes
+        block: |
+          ; DNS zone file for {{ deployment_server.wildcard_subdomain }}.{{ master_server.domain }}
+          $TTL    604800
+          @       IN      SOA     {{ deployment_server.hostname }}. admin.{{ master_server.domain }}. (
+                                    1         ; Serial
+                               604800         ; Refresh
+                                86400         ; Retry
+                              2419200         ; Expire
+                               604800 )       ; Negative Cache TTL
+          ;
+          @       IN      NS      {{ deployment_server.hostname }}.
+          *       IN      A       {{ deployment_server.ip }}
+        marker: "; {mark} ANSIBLE MANAGED DNS ZONE"
+
+    # === CONFIGURACIÓN PHP PARA INSTANCIAS ===
+    - name: "Configurar permisos para sesiones PHP"
+      file:
+        path: "{{ item }}"
+        mode: '0733'
+        state: directory
+      loop:
+        - /dev/shm
+        - /var/lib/php/sessions
+
+    - name: "Establecer sticky bit para directorios de sesiones"
+      file:
+        path: "{{ item }}"
+        mode: '+t'
+      loop:
+        - /dev/shm
+        - /var/lib/php/sessions
+
+    # === CONFIGURACIÓN FAIL2BAN ESPECÍFICA DE DEPLOYMENT ===
+    - name: "Crear enlaces simbólicos para filtros de fail2ban"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/etc/fail2ban/filter.d/{{ item }}"
+        dest: "/etc/fail2ban/filter.d/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit403.conf
+        - web-dolibarr-rulespassforgotten.conf
+        - web-dolibarr-rulesbruteforce.conf
+        - web-dolibarr-ruleslimitpublic.conf
+        - web-dolibarr-rulesregisterinstance.conf
+
+    - name: "Crear enlaces simbólicos para jails de fail2ban"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/etc/fail2ban/jail.d/{{ item }}"
+        dest: "/etc/fail2ban/jail.d/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit403.conf
+
+    # === CREAR ARCHIVOS DE LOG NECESARIOS ===
+    - name: "Crear archivos de log como root"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - /var/log/phpmail.log
+        - /var/log/phpsendmail.log
+        - /var/log/daemon.log
+
+    - name: "Crear archivos de log como admin"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0644'
+      loop:
+        - "{{ directories.documents }}/dolibarr_register.log"
+        - "{{ directories.documents }}/dolibarr.log"
+
+    - name: "Crear archivos de blacklist para email"
+      file:
+        path: "{{ directories.documents }}/sellyoursaas/spam/{{ item }}"
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+        mode: '0644'
+      loop:
+        - blacklistmail
+        - blacklistip
+        - blacklistfrom
+        - blacklistcontent
+
+    # === CONFIGURACIÓN DE CRON JOBS DEPLOYMENT ===
+    - name: "Configurar cron job para limpieza de instancias"
+      cron:
+        name: "Clean instances"
+        minute: "40"
+        hour: "4"
+        day: "4"
+        job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm"
+        user: root
+
+    # === CONFIGURACIÓN DE ENLACES SIMBÓLICOS DOLIBARR ===
+    - name: "Crear enlaces simbólicos para SellYourSaas en deployment"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: yes
+        owner: "{{ system_users.app_admin }}"
+        group: admin
+      loop:
+        - { src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas" }
+        - { src: "{{ directories.wwwroot }}/dolibarr/htdocs", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount/source" }
+        - { src: "{{ directories.wwwroot }}/dolibarr/htdocs/main.inc.php", dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount/main.inc.php" }
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

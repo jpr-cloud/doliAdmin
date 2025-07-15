@@ -1,0 +1,99 @@
+# =============================================================================
+# Configuración Apache en Master
+# =============================================================================
+---
+- name: "Configuración Apache Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Habilitar módulos de Apache"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      notify: restart apache2
+
+    - name: "Habilitar configuraciones de Apache"
+      command: "a2enconf {{ item }}"
+      loop: "{{ apache_configs }}"
+      notify: restart apache2
+      changed_when: false
+
+    - name: "Configurar seguridad de Apache"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/security.conf
+        block: |
+          # SellYourSaas Security Configuration
+          ServerTokens Prod
+          ServerSignature Off
+        marker: "# {mark} ANSIBLE MANAGED SECURITY"
+      notify: restart apache2
+
+    - name: "Crear archivo .htpasswd para Apache"
+      htpasswd:
+        path: /etc/apache2/.htpasswd
+        name: "{{ system_users.app_admin }}"
+        password: "{{ system_users.passwords.admin }}"
+        owner: root
+        group: www-data
+        mode: 0640
+
+    - name: "Configurar Virtual Host para admin"
+      blockinfile:
+        path: "/etc/apache2/sites-available/admin.{{ master_server.domain }}.conf"
+        create: yes
+        block: |
+          <VirtualHost *:80>
+              ServerName admin.{{ master_server.domain }}
+              DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs
+              
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/admin_error.log
+              CustomLog ${APACHE_LOG_DIR}/admin_access.log combined
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED ADMIN VHOST"
+
+    - name: "Configurar Virtual Host para myaccount"
+      blockinfile:
+        path: "/etc/apache2/sites-available/myaccount.{{ master_server.domain }}.conf"
+        create: yes
+        block: |
+          <VirtualHost *:80>
+              ServerName myaccount.{{ master_server.domain }}
+              DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount
+              
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/myaccount>
+                  AllowOverride All
+                  Require all granted
+              </Directory>
+              
+              ErrorLog ${APACHE_LOG_DIR}/myaccount_error.log
+              CustomLog ${APACHE_LOG_DIR}/myaccount_access.log combined
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED MYACCOUNT VHOST"
+
+    - name: "Desactivar sitio por defecto"
+      command: a2dissite 000-default
+      notify: restart apache2
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar sitios de SellYourSaas"
+      command: "a2ensite {{ item }}"
+      loop:
+        - "admin.{{ master_server.domain }}"
+        - "myaccount.{{ master_server.domain }}"
+      notify: restart apache2
+      changed_when: false
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

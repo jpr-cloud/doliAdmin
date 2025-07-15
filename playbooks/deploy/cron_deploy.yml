@@ -1,0 +1,168 @@
+# =============================================================================
+# Configuración Cron específica para Deploy
+# =============================================================================
+---
+- name: "Configuración Cron Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Configurar cron específico para deployment"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute | default('*') }}"
+        hour: "{{ item.hour | default('*') }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: "{{ item.user | default('root') }}"
+        state: present
+      loop:
+        - name: "Verificar certificados SSL de instancias"
+          minute: "0"
+          hour: "6"
+          job: "for cert in /etc/letsencrypt/live/*/cert.pem; do certbot renew --cert-name $(basename $(dirname $cert)) --quiet; done"
+          
+        - name: "Limpieza de logs de Apache de instancias"
+          minute: "0"
+          hour: "2"
+          job: "find /var/log/apache2 -name '*_access.log' -mtime +7 -delete; find /var/log/apache2 -name '*_error.log' -mtime +7 -delete"
+          
+        - name: "Verificar permisos de instancias"
+          minute: "0"
+          hour: "1"
+          job: "find {{ directories.instances }} -type d -exec chown {{ system_users.app_admin }}:www-data {} \\; -exec chmod 755 {} \\;"
+          
+        - name: "Optimización de base de datos de instancias"
+          minute: "0"
+          hour: "4"
+          weekday: "0"
+          job: "mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} -e \"SELECT CONCAT('OPTIMIZE TABLE ', table_schema, '.', table_name, ';') FROM information_schema.tables WHERE table_schema LIKE 'instance_%';\" | grep -v CONCAT | mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }}"
+          
+        - name: "Reporte de estado de instancias"
+          minute: "0"
+          hour: "8"
+          job: "echo \"Instancias activas: $(ls -1 {{ directories.instances }} | wc -l)\" | mail -s \"Reporte diario instancias {{ deployment_server.hostname }}\" {{ notifications.email }}"
+          
+        - name: "Verificar espacio disponible para nuevas instancias"
+          minute: "*/30"
+          job: "df {{ directories.instances }} | awk 'NR==2 {if ($5+0 > 90) system(\"echo Espacio crítico en instancias | mail -s ALERT:Espacio {{ notifications.email }}\");}'"
+
+    - name: "Crear script de tareas programadas específicas de deployment"
+      blockinfile:
+        path: "{{ directories.scripts }}/deploy_scheduled_tasks.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED DEPLOY SCHEDULED TASKS"
+        block: |
+          #!/bin/bash
+          # Tareas programadas específicas para deployment
+          
+          LOG_FILE="/var/log/deploy_scheduled.log"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          TASK=$1
+          
+          case $TASK in
+              "cleanup_temp")
+                  log_message "Iniciando limpieza de archivos temporales de instancias"
+                  find {{ directories.instances }}/*/tmp -type f -mtime +1 -delete 2>/dev/null
+                  find {{ directories.instances }}/*/documents/temp -type f -mtime +7 -delete 2>/dev/null
+                  log_message "Limpieza de temporales completada"
+                  ;;
+                  
+              "check_instances_health")
+                  log_message "Verificando salud de instancias"
+                  for instance in {{ directories.instances }}/*/; do
+                      if [ -d "$instance" ]; then
+                          instance_name=$(basename "$instance")
+                          # Verificar si la instancia responde
+                          if [ -f "$instance/htdocs/index.php" ]; then
+                              log_message "Instancia $instance_name: OK"
+                          else
+                              log_message "Instancia $instance_name: PROBLEMA - Falta index.php"
+                          fi
+                      fi
+                  done
+                  ;;
+                  
+              "update_instances_stats")
+                  log_message "Actualizando estadísticas de instancias"
+                  TOTAL=$(ls -1d {{ directories.instances }}/*/ 2>/dev/null | wc -l)
+                  TOTAL_SIZE=$(du -sh {{ directories.instances }} | cut -f1)
+                  echo "$(date): $TOTAL instancias, $TOTAL_SIZE total" >> /var/log/instances_stats.log
+                  ;;
+                  
+              *)
+                  echo "Uso: $0 {cleanup_temp|check_instances_health|update_instances_stats}"
+                  exit 1
+                  ;;
+          esac
+
+    - name: "Configurar tareas programadas específicas con cron"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute | default('*') }}"
+        hour: "{{ item.hour | default('*') }}"
+        day: "{{ item.day | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ directories.scripts }}/deploy_scheduled_tasks.sh {{ item.task }}"
+        user: root
+      loop:
+        - name: "Limpieza archivos temp instancias"
+          minute: "0"
+          hour: "*/6"
+          task: "cleanup_temp"
+          
+        - name: "Verificación salud instancias"
+          minute: "15"
+          hour: "*/4"
+          task: "check_instances_health"
+          
+        - name: "Actualizar estadísticas instancias"
+          minute: "0"
+          hour: "12"
+          task: "update_instances_stats"
+
+    - name: "Crear archivo de log para tareas programadas"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - /var/log/deploy_scheduled.log
+        - /var/log/instances_stats.log
+
+    - name: "Configurar logrotate para logs de tareas programadas"
+      blockinfile:
+        path: /etc/logrotate.d/deploy-scheduled
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED DEPLOY SCHEDULED LOGROTATE"
+        block: |
+          /var/log/deploy_scheduled.log {
+              weekly
+              rotate 8
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }
+          
+          /var/log/instances_stats.log {
+              monthly
+              rotate 12
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+          }

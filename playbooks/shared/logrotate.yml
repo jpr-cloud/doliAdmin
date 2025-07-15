@@ -1,0 +1,67 @@
+# =============================================================================
+# Configuración de Logrotate
+# =============================================================================
+---
+- name: "Configuración de Logrotate"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Agregar usuario syslog a logrotate.conf"
+      lineinfile:
+        path: /etc/logrotate.conf
+        regexp: '^su root syslog'
+        line: 'su root syslog'
+        insertafter: '^# su directive'
+
+    - name: "Configurar logrotate para Apache (365 días)"
+      replace:
+        path: /etc/logrotate.d/apache2
+        regexp: 'rotate \d+'
+        replace: 'rotate 365'
+
+    - name: "Crear configuración logrotate para logs de admin"
+      blockinfile:
+        path: /etc/logrotate.d/logrotate_admin_log
+        create: yes
+        block: |
+          {{ directories.logs }}/*.log {
+              daily
+              missingok
+              rotate 90
+              compress
+              delaycompress
+              notifempty
+              create 644 root admin
+          }
+        marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
+
+    - name: "Crear configuración logrotate para logs de SellYourSaas"
+      blockinfile:
+        path: /etc/logrotate.d/logrotate_sellyoursaas_log
+        create: yes
+        block: |
+          {{ directories.documents }}/*.log {
+              daily
+              missingok
+              rotate 90
+              compress
+              delaycompress
+              notifempty
+              create 644 {{ system_users.app_admin }} admin
+          }
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS LOGROTATE"
+
+    - name: "Configurar tamaño máximo de journals"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: 'SystemMaxUse=100M'
+      notify: restart systemd-journald
+
+  handlers:
+    - name: restart systemd-journald
+      systemd:
+        name: systemd-journald
+        state: restarted

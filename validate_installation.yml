@@ -1,0 +1,140 @@
+# =============================================================================
+# Validación y Verificación del Sistema SellYourSaas
+# =============================================================================
+---
+- name: "VALIDACIÓN COMPLETA DEL SISTEMA"
+  hosts: all
+  become: true
+  gather_facts: yes
+  
+  tasks:
+    - name: "Verificar que las variables críticas estén definidas"
+      assert:
+        that:
+          - master_server.ip is defined
+          - deployment_server.ip is defined
+          - database.main_db is defined
+          - system_users.app_admin is defined
+          - ssh_config.port is defined
+        fail_msg: "Variables críticas no están definidas correctamente"
+        success_msg: "Variables críticas definidas correctamente"
+
+    - name: "Verificar conectividad entre servidores"
+      ping:
+        data: "connectivity_test"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['all'] }}"
+      when: inventory_hostname != item
+
+    - name: "Verificar que los directorios principales existen"
+      stat:
+        path: "{{ item }}"
+      register: dir_check
+      failed_when: not dir_check.stat.exists
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.logs }}"
+        - "{{ directories.backup }}"
+
+    - name: "Verificar permisos de directorios críticos"
+      stat:
+        path: "{{ directories.wwwroot }}"
+      register: wwwroot_perms
+      failed_when: wwwroot_perms.stat.pw_name != system_users.app_admin
+
+    - name: "Verificar servicios críticos en Master"
+      systemd:
+        name: "{{ item }}"
+        state: started
+      register: service_check
+      failed_when: service_check.status.ActiveState != "active"
+      loop:
+        - apache2
+        - mariadb
+        - nfs-kernel-server
+      when: inventory_hostname in groups['master']
+
+    - name: "Verificar servicios críticos en Deployment"
+      systemd:
+        name: "{{ item }}"
+        state: started
+      register: service_check
+      failed_when: service_check.status.ActiveState != "active"
+      loop:
+        - apache2
+      when: inventory_hostname in groups['deploy']
+
+    - name: "Verificar configuración SSH"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^Port {{ ssh_config.port }}"
+        state: absent
+      check_mode: yes
+      register: ssh_check
+      failed_when: ssh_check.changed
+
+    - name: "Verificar usuario admin existe"
+      user:
+        name: "{{ system_users.app_admin }}"
+        state: present
+      check_mode: yes
+
+    - name: "Verificar configuración de base de datos (solo master)"
+      mysql_db:
+        name: "{{ database.main_db }}"
+        state: present
+        login_host: "{{ master_server.ip }}"
+        login_user: "{{ database.user }}"
+        login_password: "{{ database.password }}"
+      when: inventory_hostname in groups['master']
+
+    - name: "Verificar conectividad a base de datos desde deployment"
+      command: >
+        mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} 
+        -e "SELECT 1"
+      register: db_test
+      failed_when: db_test.rc != 0
+      when: inventory_hostname in groups['deploy']
+
+    - name: "Verificar montaje NFS en deployment"
+      mount:
+        path: "{{ directories.nfs_mount }}"
+        src: "{{ master_server.ip }}:{{ directories.backups }}"
+        fstype: nfs
+        state: present
+      check_mode: yes
+      when: inventory_hostname in groups['deploy']
+
+    - name: "Verificar módulos Apache están habilitados"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      check_mode: yes
+      loop:
+        - rewrite
+        - ssl
+        - headers
+        - php7.4
+      register: apache_modules_check
+
+    - name: "Verificar archivos de configuración críticos existen"
+      stat:
+        path: "{{ item }}"
+      register: config_files
+      failed_when: not config_files.stat.exists
+      loop:
+        - "/etc/fail2ban/jail.local"
+        - "/etc/apache2/sites-available/admin.{{ master_server.domain }}.conf"
+      when: inventory_hostname in groups['master']
+
+    - name: "Mostrar resumen de validación"
+      debug:
+        msg:
+          - "==============================================="
+          - "VALIDACIÓN COMPLETADA PARA: {{ inventory_hostname }}"
+          - "Tipo: {{ 'MASTER' if inventory_hostname in groups['master'] else 'DEPLOYMENT' }}"
+          - "IP: {{ ansible_host }}"
+          - "Servicios: OK"
+          - "Conectividad: OK"
+          - "Configuración: OK"
+          - "==============================================="

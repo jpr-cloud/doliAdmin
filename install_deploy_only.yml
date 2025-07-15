@@ -1,0 +1,186 @@
+# =============================================================================
+# INSTALACIÓN SOLO SERVIDOR DEPLOYMENT
+# =============================================================================
+# Este playbook instala únicamente el servidor de deployment
+# PREREQUISITO: El servidor master debe estar ya instalado y funcionando
+# =============================================================================
+---
+- name: "=== INSTALACIÓN SOLO DEPLOYMENT SERVER ==="
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de instalación Deployment"
+      debug:
+        msg:
+          - "=========================================="
+          - "  INSTALACIÓN SOLO SERVIDOR DEPLOYMENT"
+          - "=========================================="
+          - "Deploy Server: {{ deployment_server.hostname }} ({{ deployment_server.ip }})"
+          - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
+          - "Dominio Deploy: {{ deployment_server.domain }}"
+          - "=========================================="
+
+    - name: "Verificar conectividad con Master"
+      ping:
+        data: "test"
+      delegate_to: "{{ master_server.ip }}"
+      ignore_errors: yes
+      register: master_connectivity
+
+    - name: "Advertencia si no hay conectividad con Master"
+      debug:
+        msg:
+          - "⚠️  ADVERTENCIA: No se puede conectar con el servidor Master"
+          - "   Asegúrate de que el Master esté instalado y funcionando"
+          - "   IP Master: {{ master_server.ip }}"
+      when: master_connectivity.failed is defined and master_connectivity.failed
+
+# =============================================================================
+# CONFIGURACIÓN BÁSICA DEPLOYMENT
+# =============================================================================
+- name: "FASE 1: Instalación de paquetes comunes en Deploy"
+  import_playbook: playbooks/shared/common_packages.yml
+  vars:
+    ansible_limit: deploy
+
+# =============================================================================
+# CONFIGURACIÓN ESPECÍFICA DEPLOYMENT
+# =============================================================================
+- name: "FASE 2.1: Configuración SSH y usuarios en Deploy"
+  import_playbook: playbooks/deploy/ssh_sudo.yml
+
+- name: "FASE 2.2: Configuración NFS Cliente en Deploy"
+  import_playbook: playbooks/deploy/nfs_deploy.yml
+
+- name: "FASE 2.3: Configuración PHP en Deploy"
+  import_playbook: playbooks/shared/php_config.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 2.4: Configuración Apache en Deploy"
+  import_playbook: playbooks/deploy/apache_deploy.yml
+
+- name: "FASE 2.5: Configuración Fail2ban en Deploy"
+  import_playbook: playbooks/deploy/fail2ban_deploy.yml
+
+- name: "FASE 2.6: Configuración SSL/Certbot en Deploy"
+  import_playbook: playbooks/shared/certbot.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 2.7: Configuración Dolibarr Templates en Deploy"
+  import_playbook: playbooks/deploy/dolibarr_deploy.yml
+
+- name: "FASE 2.8: Configuración Logrotate en Deploy"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 2.9: Configuración Cron específico en Deploy"
+  import_playbook: playbooks/deploy/cron_deploy.yml
+
+- name: "FASE 2.10: Configuración Cron general en Deploy"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 2.11: Configuración AFICK en Deploy"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 2.12: Configuración Watchdog en Deploy"
+  import_playbook: playbooks/deploy/watchdog_deploy.yml
+
+# =============================================================================
+# VERIFICACIÓN DEPLOYMENT
+# =============================================================================
+- name: "FASE 3: Verificación instalación Deployment"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Verificar servicios críticos en Deploy"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - fail2ban
+
+    - name: "Verificar acceso a directorios críticos"
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ directories.instances }}"
+        - "{{ directories.backups }}"
+        - "{{ directories.scripts }}"
+        - "{{ directories.templates }}"
+      check_mode: yes
+
+    - name: "Verificar montaje NFS con Master"
+      mount:
+        path: "{{ directories.nfs_mount }}"
+        src: "{{ master_server.ip }}:{{ directories.backups }}"
+        fstype: nfs
+        state: mounted
+      register: nfs_mount_result
+
+    - name: "Verificar conectividad con base de datos Master"
+      command: >
+        mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} 
+        -e "SELECT 1"
+      register: db_connectivity
+      changed_when: false
+      failed_when: db_connectivity.rc != 0
+
+    - name: "Mostrar resumen de instalación Deployment"
+      debug:
+        msg:
+          - "=========================================="
+          - "INSTALACIÓN DEPLOYMENT COMPLETADA"
+          - "Servidor: {{ inventory_hostname }}"
+          - "IP: {{ ansible_host }}"
+          - "Hostname: {{ ansible_hostname }}"
+          - "NFS Mount: {{ 'OK' if nfs_mount_result.changed == false else 'ERROR' }}"
+          - "DB Connectivity: {{ 'OK' if db_connectivity.rc == 0 else 'ERROR' }}"
+          - "=========================================="
+
+# =============================================================================
+# INFORMACIÓN FINAL DEPLOYMENT
+# =============================================================================
+- name: "FASE 4: Información final Deployment"
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de acceso Deployment"
+      debug:
+        msg:
+          - "================================================================"
+          - "        INSTALACIÓN SERVIDOR DEPLOYMENT COMPLETADA"
+          - "================================================================"
+          - ""
+          - "🔧 ACCESOS DEPLOYMENT:"
+          - "   • SSH: ssh {{ system_users.app_admin }}@{{ deployment_server.ip }} -p {{ ssh_config.port }}"
+          - "   • Instancias se crearán en: {{ directories.instances }}"
+          - ""
+          - "📊 SERVICIOS DEPLOYMENT ACTIVOS:"
+          - "   • Apache configurado para instancias múltiples"
+          - "   • NFS Cliente conectado al Master"
+          - "   • Monitoreo específico de instancias"
+          - "   • SSL automático para nuevas instancias"
+          - ""
+          - "🔗 CONEXIÓN CON MASTER:"
+          - "   • Master IP: {{ master_server.ip }}"
+          - "   • Base de datos compartida: {{ database.main_db }}"
+          - "   • NFS Mount: {{ directories.nfs_mount }}"
+          - ""
+          - "🚀 PRÓXIMOS PASOS:"
+          - "   1. Desde el panel Master, crear primera instancia de prueba"
+          - "   2. Verificar que la instancia se crea en este servidor"
+          - "   3. Configurar DNS wildcard para *.{{ deployment_server.domain }}"
+          - ""
+          - "📧 NOTIFICACIONES: {{ notifications.email }}"
+          - "================================================================"

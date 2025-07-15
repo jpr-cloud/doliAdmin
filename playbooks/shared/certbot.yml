@@ -1,0 +1,40 @@
+# =============================================================================
+# Configuración de Certbot para SSL
+# =============================================================================
+---
+- name: "Instalación y configuración de Certbot"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Verificar si snapd está instalado"
+      package_facts:
+        manager: auto
+
+    - name: "Instalar snapd si no está presente"
+      package:
+        name: snapd
+        state: present
+      when: "'snapd' not in ansible_facts.packages"
+
+    - name: "Instalar certbot via snap"
+      snap:
+        name: certbot
+        classic: yes
+        state: present
+
+    - name: "Crear enlace simbólico para certbot"
+      file:
+        src: /snap/bin/certbot
+        dest: /usr/bin/certbot
+        state: link
+        force: yes
+
+    - name: "Configurar cron para renovación automática de certificados"
+      cron:
+        name: "Renovar certificados SSL automáticamente"
+        minute: "47"
+        hour: "2"
+        job: "/usr/bin/certbot renew --no-self-upgrade > /var/log/letsencrypt/certbot-auto_renew.log 2>&1"
+        user: root

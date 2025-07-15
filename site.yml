@@ -1,0 +1,266 @@
+# =============================================================================
+# SellYourSaas - Playbook Principal de Instalación
+# =============================================================================
+# Este playbook orquesta la instalación completa de SellYourSaas
+# incluyendo tanto el servidor master como el de deployment
+# =============================================================================
+---
+- name: "=== INSTALACIÓN SELLYOURSAAS - CONFIGURACIÓN COMPLETA ==="
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de la instalación"
+      debug:
+        msg:
+          - "=========================================="
+          - "  INSTALACIÓN SELLYOURSAAS AUTOMATIZADA"
+          - "=========================================="
+          - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
+          - "Deploy Server: {{ deployment_server.hostname }} ({{ deployment_server.ip }})"
+          - "Dominio Master: {{ master_server.domain }}"
+          - "Dominio Deploy: {{ deployment_server.domain }}"
+          - "Versión Dolibarr: {{ dolibarr.version }}"
+          - "=========================================="
+
+# =============================================================================
+# FASE 1: CONFIGURACIÓN BÁSICA Y PAQUETES COMUNES
+# =============================================================================
+- name: "FASE 1: Instalación de paquetes comunes en ambos servidores"
+  import_playbook: playbooks/shared/common_packages.yml
+
+# =============================================================================
+# FASE 2: CONFIGURACIÓN MASTER SERVER
+# =============================================================================
+- name: "FASE 2.1: Configuración SSH y usuarios en Master"
+  import_playbook: playbooks/master/ssh_sudo.yml
+
+- name: "FASE 2.2: Configuración NFS Server en Master"
+  import_playbook: playbooks/master/nfs_master.yml
+
+- name: "FASE 2.3: Configuración PHP en Master"
+  import_playbook: playbooks/shared/php_config.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.4: Configuración Apache en Master"
+  import_playbook: playbooks/master/apache_master.yml
+
+- name: "FASE 2.5: Configuración MariaDB en Master"
+  import_playbook: playbooks/master/mariadb_master.yml
+
+- name: "FASE 2.6: Configuración Fail2ban en Master"
+  import_playbook: playbooks/master/fail2ban_master.yml
+
+- name: "FASE 2.7: Configuración SSL/Certbot en Master"
+  import_playbook: playbooks/master/certbot_master.yml
+
+- name: "FASE 2.8: Instalación Dolibarr en Master"
+  import_playbook: playbooks/master/dolibarr_master.yml
+
+- name: "FASE 2.9: Configuración Logrotate en Master"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.10: Configuración Cron en Master"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.11: Configuración AFICK en Master"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 2.12: Configuración Watchdog en Master"
+  import_playbook: playbooks/master/watchdog_master.yml
+
+# =============================================================================
+# FASE 3: CONFIGURACIÓN DEPLOYMENT SERVER
+# =============================================================================
+- name: "FASE 3.1: Configuración SSH y usuarios en Deploy"
+  import_playbook: playbooks/deploy/ssh_sudo.yml
+
+- name: "FASE 3.2: Configuración NFS Cliente en Deploy"
+  import_playbook: playbooks/deploy/nfs_deploy.yml
+
+- name: "FASE 3.3: Configuración PHP en Deploy"
+  import_playbook: playbooks/shared/php_config.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 3.4: Configuración Apache en Deploy"
+  import_playbook: playbooks/deploy/apache_deploy.yml
+
+- name: "FASE 3.5: Configuración Fail2ban en Deploy"
+  import_playbook: playbooks/deploy/fail2ban_deploy.yml
+
+- name: "FASE 3.6: Configuración SSL/Certbot en Deploy"
+  import_playbook: playbooks/shared/certbot.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 3.7: Configuración Dolibarr Templates en Deploy"
+  import_playbook: playbooks/deploy/dolibarr_deploy.yml
+
+- name: "FASE 3.8: Configuración Logrotate en Deploy"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 3.9: Configuración Cron específico en Deploy"
+  import_playbook: playbooks/deploy/cron_deploy.yml
+
+- name: "FASE 3.10: Configuración Cron general en Deploy"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 3.11: Configuración AFICK en Deploy"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 3.12: Configuración Watchdog en Deploy"
+  import_playbook: playbooks/deploy/watchdog_deploy.yml
+
+# =============================================================================
+# FASE 4: VERIFICACIÓN Y FINALIZACIÓN
+# =============================================================================
+- name: "FASE 4: Verificación final de la instalación"
+  hosts: all
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Verificar servicios críticos en Master"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - mariadb
+        - fail2ban
+        - nfs-kernel-server
+      when: inventory_hostname in groups['master']
+
+    - name: "Verificar servicios críticos en Deploy"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - fail2ban
+      when: inventory_hostname in groups['deploy']
+
+    - name: "Verificar conectividad entre servidores"
+      ping:
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['all'] }}"
+      when: inventory_hostname != item
+
+    - name: "Verificar acceso a directorios críticos"
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.backups }}"
+        - "{{ directories.scripts }}"
+      check_mode: yes
+
+    - name: "Mostrar resumen de instalación por servidor"
+      debug:
+        msg:
+          - "=========================================="
+          - "INSTALACIÓN COMPLETADA EN: {{ inventory_hostname }}"
+          - "Tipo: {{ 'MASTER' if inventory_hostname in groups['master'] else 'DEPLOYMENT' }}"
+          - "IP: {{ ansible_host }}"
+          - "Hostname: {{ ansible_hostname }}"
+          - "=========================================="
+
+# =============================================================================
+# FASE 5: INFORMACIÓN FINAL
+# =============================================================================
+- name: "FASE 5: Información final y próximos pasos"
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: "Mostrar información de acceso y próximos pasos"
+      debug:
+        msg:
+          - "================================================================"
+          - "          INSTALACIÓN SELLYOURSAAS COMPLETADA"
+          - "================================================================"
+          - ""
+          - "🔧 ACCESOS PRINCIPALES:"
+          - "   • Admin Panel: https://admin.{{ master_server.domain }}"
+          - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
+          - "   • SSH Master: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
+          - "   • SSH Deploy: ssh {{ system_users.app_admin }}@{{ deployment_server.ip }} -p {{ ssh_config.port }}"
+          - ""
+          - "📊 SERVICIOS CONFIGURADOS:"
+          - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
+          - "   • Web Server: Apache con SSL automático"
+          - "   • Monitoreo: Scripts automáticos configurados"
+          - "   • Backups: Programados diariamente"
+          - "   • Seguridad: Fail2ban activo en ambos servidores"
+          - ""
+          - "📁 DIRECTORIOS IMPORTANTES:"
+          - "   • Instancias: {{ directories.instances }}"
+          - "   • Backups: {{ directories.backups }}"
+          - "   • Scripts: {{ directories.scripts }}"
+          - "   • Web Root: {{ directories.wwwroot }}"
+          - ""
+          - "🚀 PRÓXIMOS PASOS:"
+          - "   1. Acceder al panel de administración de Dolibarr"
+          - "   2. Completar la configuración inicial del módulo SellYourSaas"
+          - "   3. Crear la primera instancia de prueba"
+          - "   4. Configurar métodos de pago y plantillas"
+          - "   5. Verificar el funcionamiento de backups y monitoreo"
+          - ""
+          - "📧 NOTIFICACIONES: {{ notifications.email }}"
+          - "================================================================"
+
+    - name: "Crear archivo de resumen de instalación"
+      copy:
+        content: |
+          # Resumen de Instalación SellYourSaas
+          Fecha de instalación: {{ ansible_date_time.iso8601 }}
+          
+          ## Servidores Configurados
+          - Master: {{ master_server.hostname }} ({{ master_server.ip }})
+          - Deploy: {{ deployment_server.hostname }} ({{ deployment_server.ip }})
+          
+          ## Accesos
+          - Admin Panel: https://admin.{{ master_server.domain }}
+          - Customer Portal: https://myaccount.{{ master_server.domain }}
+          - SSH Master: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}
+          - SSH Deploy: ssh {{ system_users.app_admin }}@{{ deployment_server.ip }} -p {{ ssh_config.port }}
+          
+          ## Credenciales de Base de Datos
+          - Host: {{ master_server.ip }}
+          - Base de datos: {{ database.main_db }}
+          - Usuario: {{ database.user }}
+          - Puerto: 3306
+          
+          ## Scripts de Gestión
+          - Crear instancia: {{ directories.scripts }}/create_instance.sh
+          - Eliminar instancia: {{ directories.scripts }}/delete_instance.sh
+          - Gestionar VHost: {{ directories.scripts }}/manage_vhost.sh
+          - Backup manual: {{ directories.scripts }}/backup.sh
+          
+          ## Logs Importantes
+          - Monitoreo Master: /var/log/service_monitor.log
+          - Monitoreo Deploy: /var/log/service_monitor_deploy.log
+          - Creación Instancias: /var/log/instance_creation.log
+          - Backups: /var/log/backup.log
+          
+          Para soporte, revisar la documentación en documentation/
+        dest: "./INSTALACION_COMPLETADA.md"
+      delegate_to: localhost
+
+    - name: "Archivo de resumen creado"
+      debug:
+        msg: "📄 Archivo de resumen guardado en: ./INSTALACION_COMPLETADA.md"

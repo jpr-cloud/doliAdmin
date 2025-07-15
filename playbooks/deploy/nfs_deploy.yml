@@ -1,0 +1,98 @@
+# =============================================================================
+# Configuración NFS Cliente en Deploy
+# =============================================================================
+---
+- name: "Configuración NFS Cliente Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear punto de montaje para backups NFS"
+      file:
+        path: "{{ directories.nfs_mount }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+
+    - name: "Configurar montaje NFS en /etc/fstab"
+      blockinfile:
+        path: /etc/fstab
+        marker: "# {mark} ANSIBLE MANAGED NFS MOUNT"
+        block: |
+          # Montaje NFS para backups desde master
+          {{ master_server.ip }}:{{ directories.backups }} {{ directories.nfs_mount }} nfs defaults,auto,rw,user 0 0
+
+    - name: "Probar montaje NFS"
+      mount:
+        path: "{{ directories.nfs_mount }}"
+        src: "{{ master_server.ip }}:{{ directories.backups }}"
+        fstype: nfs
+        opts: defaults,auto,rw,user
+        state: mounted
+
+    - name: "Verificar acceso de escritura NFS"
+      file:
+        path: "{{ directories.nfs_mount }}/test_deploy_access"
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0644'
+      register: nfs_test
+
+    - name: "Eliminar archivo de prueba NFS"
+      file:
+        path: "{{ directories.nfs_mount }}/test_deploy_access"
+        state: absent
+      when: nfs_test is succeeded
+
+    - name: "Configurar script de sincronización con master"
+      blockinfile:
+        path: "{{ directories.scripts }}/sync_with_master.sh"
+        create: yes
+        mode: '0755'
+        marker: "# {mark} ANSIBLE MANAGED SYNC SCRIPT"
+        block: |
+          #!/bin/bash
+          # Script para sincronizar templates y configuraciones desde master
+          
+          MASTER_IP="{{ master_server.ip }}"
+          LOG_FILE="/var/log/sync_master.log"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          log_message "Iniciando sincronización con master"
+          
+          # Sincronizar templates de Dolibarr desde master via NFS
+          if [ -d "{{ directories.nfs_mount }}/templates" ]; then
+              rsync -av {{ directories.nfs_mount }}/templates/ {{ directories.templates }}/
+              log_message "Templates sincronizados desde NFS"
+          fi
+          
+          # Verificar conectividad con master
+          if ping -c 3 $MASTER_IP > /dev/null 2>&1; then
+              log_message "Conectividad con master OK"
+          else
+              log_message "ERROR: No hay conectividad con master $MASTER_IP"
+          fi
+          
+          log_message "Sincronización completada"
+
+    - name: "Configurar cron para sincronización automática"
+      cron:
+        name: "Sincronización con master"
+        minute: "*/15"
+        job: "{{ directories.scripts }}/sync_with_master.sh"
+        user: "{{ system_users.app_admin }}"
+
+    - name: "Crear directorio para logs de NFS"
+      file:
+        path: /var/log/sync_master.log
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0644'

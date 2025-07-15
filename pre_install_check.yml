@@ -1,0 +1,162 @@
+# =============================================================================
+# Pre-instalación: Verificaciones y Preparación
+# =============================================================================
+---
+- name: "PRE-INSTALACIÓN: VERIFICACIONES Y PREPARACIÓN"
+  hosts: localhost
+  gather_facts: no
+  
+  tasks:
+    - name: "Verificar que las variables obligatorias estén definidas"
+      assert:
+        that:
+          - master_server.ip is defined
+          - deployment_server.ip is defined
+          - master_server.domain is defined
+          - deployment_server.domain is defined
+          - database.main_db is defined
+          - database.user is defined
+          - database.password is defined
+          - system_users.app_admin is defined
+          - ssh_config.port is defined
+        fail_msg: |
+          ❌ VARIABLES OBLIGATORIAS FALTANTES
+          Verifica que todas las variables estén definidas en group_vars/all.yml:
+          - master_server.ip
+          - deployment_server.ip
+          - master_server.domain 
+          - deployment_server.domain
+          - database.main_db
+          - database.user
+          - database.password
+          - system_users.app_admin
+          - ssh_config.port
+        success_msg: "✅ Variables obligatorias definidas correctamente"
+
+    - name: "Advertir sobre configuración de SSH Keys"
+      debug:
+        msg:
+          - "⚠️  IMPORTANTE: CONFIGURAR SSH KEYS"
+          - "Las variables ssh_keys.admin_public y ssh_keys.root_public"
+          - "contienen claves de ejemplo. DEBES cambiarlas por tus claves reales:"
+          - ""
+          - "1. Generar claves: ssh-keygen -t rsa -b 4096"
+          - "2. Editar group_vars/all.yml"
+          - "3. Reemplazar las claves de ejemplo"
+          - ""
+      when: ssh_keys.admin_public is search("AAAAB3NzaC1yc2EAAAADAQABAAACAQC...")
+
+    - name: "Mostrar configuración actual"
+      debug:
+        msg:
+          - "=========================================="
+          - "  CONFIGURACIÓN ACTUAL"
+          - "=========================================="
+          - "Master Server: {{ master_server.ip }} ({{ master_server.fqdn }})"
+          - "Deploy Server: {{ deployment_server.ip }} ({{ deployment_server.fqdn }})"
+          - "Admin Panel: https://admin.{{ master_server.domain }}"
+          - "Customer Portal: https://myaccount.{{ master_server.domain }}"
+          - "Instancias Domain: {{ deployment_server.domain }}"
+          - "Database: {{ database.main_db }} en {{ master_server.ip }}"
+          - "SSH Port: {{ ssh_config.port }}"
+          - "Admin User: {{ system_users.app_admin }}"
+          - "=========================================="
+
+- name: "VERIFICAR CONECTIVIDAD CON SERVIDORES"
+  hosts: all
+  gather_facts: no
+  
+  tasks:
+    - name: "Probar conectividad SSH"
+      ping:
+        data: "test"
+      register: connectivity_test
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de conectividad"
+      debug:
+        msg: |
+          {% if connectivity_test.failed %}
+          ❌ NO SE PUEDE CONECTAR A {{ inventory_hostname }} ({{ ansible_host }})
+          Verifica:
+          - El servidor está encendido
+          - SSH está funcionando
+          - Puedes conectarte manualmente: ssh {{ ansible_user }}@{{ ansible_host }}
+          - Las claves SSH están configuradas
+          {% else %}
+          ✅ CONECTIVIDAD OK con {{ inventory_hostname }} ({{ ansible_host }})
+          {% endif %}
+
+- name: "VERIFICAR REQUISITOS DEL SISTEMA"
+  hosts: all
+  become: true
+  gather_facts: yes
+  ignore_errors: yes
+
+  tasks:
+    - name: "Verificar versión de Ubuntu"
+      assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_major_version|int >= 18
+        fail_msg: "❌ Se requiere Ubuntu 18.04 o superior"
+        success_msg: "✅ Versión de Ubuntu compatible: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: "Verificar memoria RAM disponible"
+      assert:
+        that:
+          - ansible_memtotal_mb >= 2048
+        fail_msg: "❌ Se requieren al menos 2GB de RAM. Disponible: {{ ansible_memtotal_mb }}MB"
+        success_msg: "✅ Memoria RAM suficiente: {{ ansible_memtotal_mb }}MB"
+
+    - name: "Verificar espacio en disco"
+      shell: df -BG / | awk 'NR==2 {print $4}' | sed 's/G//'
+      register: disk_space
+      changed_when: false
+
+    - name: "Validar espacio en disco"
+      assert:
+        that:
+          - disk_space.stdout|int >= 20
+        fail_msg: "❌ Se requieren al menos 20GB libres. Disponible: {{ disk_space.stdout }}GB"
+        success_msg: "✅ Espacio en disco suficiente: {{ disk_space.stdout }}GB disponibles"
+
+    - name: "Verificar acceso sudo"
+      command: sudo -n true
+      register: sudo_test
+      failed_when: sudo_test.rc != 0
+      changed_when: false
+
+    - name: "Confirmar acceso sudo"
+      debug:
+        msg: "✅ Acceso sudo confirmado para {{ ansible_user }}"
+      when: sudo_test.rc == 0
+
+- name: "RESUMEN DE VERIFICACIONES"
+  hosts: localhost
+  gather_facts: no
+  
+  tasks:
+    - name: "Mostrar resumen final"
+      debug:
+        msg:
+          - "=========================================="
+          - "  VERIFICACIONES COMPLETADAS"
+          - "=========================================="
+          - ""
+          - "Si todas las verificaciones fueron exitosas,"
+          - "puedes proceder con la instalación:"
+          - ""
+          - "# Instalación completa:"
+          - "ansible-playbook -i hosts.cfg site.yml"
+          - ""
+          - "# Solo master:"
+          - "ansible-playbook -i hosts_master_only.cfg install_master_only.yml"
+          - ""
+          - "# Solo deployment:"
+          - "ansible-playbook -i hosts_deploy_only.cfg install_deploy_only.yml"
+          - ""
+          - "# Validar después de instalar:"
+          - "ansible-playbook -i hosts.cfg validate_installation.yml"
+          - ""
+          - "=========================================="

@@ -1,0 +1,62 @@
+# =============================================================================
+# Instalación y configuración de Afick
+# =============================================================================
+---
+- name: "Instalación de Afick para monitoreo de integridad"
+  hosts: sellyoursaas
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Descargar paquete Afick"
+      get_url:
+        url: "https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download"
+        dest: "/tmp/afick.deb"
+        mode: '0644'
+
+    - name: "Instalar paquete Afick"
+      apt:
+        deb: "/tmp/afick.deb"
+        state: present
+
+    - name: "Crear configuración básica de Afick"
+      blockinfile:
+        path: /etc/afick.conf
+        create: yes
+        block: |
+          # Afick configuration for SellYourSaas
+          
+          # Directories to monitor
+          /etc p+i+n+u+g+s+m+c+md5+sha256
+          /usr/bin p+i+n+u+g+s+m+c+md5+sha256
+          /usr/sbin p+i+n+u+g+s+m+c+md5+sha256
+          {{ directories.wwwroot }} p+i+n+u+g+s+m+c+md5+sha256
+          
+          # Directories to exclude
+          !/tmp
+          !/var/tmp
+          !/var/log
+          !/var/cache
+          !/proc
+          !/sys
+          !/dev
+          
+          # Database location
+          database = /var/lib/afick/afick.db
+          
+          # Archive location  
+          archive = /var/lib/afick/archive
+        marker: "# {mark} ANSIBLE MANAGED AFICK CONFIG"
+
+    - name: "Crear directorio para base de datos de Afick"
+      file:
+        path: /var/lib/afick
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Limpiar archivo temporal"
+      file:
+        path: "/tmp/afick.deb"
+        state: absent
