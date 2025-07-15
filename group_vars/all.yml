@@ -1,0 +1,3 @@
+master: { name: master, ip: 127.0.0.1 }
+# managed_1: { name: managed-1, ip: 20.0.1.11 }
+# managed_2: { name: managed-2, ip: 20.0.1.4 }

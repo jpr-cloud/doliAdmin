@@ -1,0 +1,118 @@
+---
+- name: Configuración inicial del servidor master
+  hosts: all
+  become: true
+
+  vars:
+    # variables
+    hostname_main: "master.j-cloud.com.mx"
+    user_login: "myunixlogin"
+    user_shell: "/bin/bash"
+    sshd_config_path: "/etc/ssh/sshd_config"
+    sudoers_file: "/etc/sudoers.d/myunixlogin"
+    sellyoursaas_conf: "/etc/ssh/sshd_config.d/sellyoursaas.conf"
+    user_sysadmin: "jpyrsaadmin"
+    user_sysadmin_password: "p123p123"
+
+    packages:
+      # Herramientas y utilidades básicas
+      - mc
+      - git
+  tasks:
+    # En primer lugar, actualizamos los repositorios y paquetes
+    - name: Actualizando los repositorios
+      apt:
+        update_cache: yes
+    - name: Instalando los paquetes necesarios
+      apt:
+        name: "{{ packages }}"
+        state: present
+    # Conbfiguraciones del sistema iniciales
+    - name: Estableciendo hostname {{ hostname_main }}
+      hostname:
+        name: "{{ hostname_main }}"
+    - name: Configurando /etc/sysctl.conf
+      blockinfile:
+        path: /etc/sysctl.conf
+        block: |
+          vm.vfs_cache_pressure=50
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes" 
+    - name: Agregando al usuario "{{ user_login }}"
+      user:
+        name: "{{ user_login }}"
+        shell: "{{ user_shell }}"
+        groups: sudo
+    - name: Modificando el shell predeterminado para usar bash (en lugar de dh, sh o dash)
+      file:
+        src: "{{ user_shell }}"
+        dest: "/usr/bin/sh"
+        state: link
+        force: yes
+    - name: Longitud mínima de la contraseña mínimo de 8 caracteres
+      lineinfile:
+        path: /etc/pam.d/common-password
+        regexp: 'password        \[success=1 default=ignore\]      pam_unix\.so obscure yescrypt'
+        line: 'password        [success=1 default=ignore]      pam_unix.so obscure yescrypt minlen=8'
+    - name: Agregando al administrador del sistema {{ jpyrsaadmin }} con sus respectivas claves
+      ansible.builtin.user:
+        name: "{{ user_sysadmin }}"
+        password: "{{ user_sysadmin_password | password_hash('sha512') }}"
+        # Create a 2048-bit SSH key for user jsmith in ~{{jpyrsaadmin}}/.ssh/id_rsa
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+    - name: Creando el archivo /etc/sudoers.d/{{ user_sysadmin }}
+      copy:
+        dest: "/etc/sudoers.d/{{ user_sysadmin }}"
+        content: |
+          {{ user_sysadmin }} ALL=(ALL) ALL
+          {{ user_sysadmin }} ALL=(ALL) /usr/bin/su - admin
+          {{ user_sysadmin }} ALL=(ALL) /usr/bin/su - osu*
+        owner: root
+        group: root
+        mode: '0440'
+        #    miapellidonombre TODOS=(TODOS) TODOS
+        # También puedes agregar estas líneas para evitar que el usuario vuelva a ingresar una contraseña al cambiar a 'admin' o 'osu*'
+        # Esto permite cambiar a admin u osu* con "sudo su - admin" o "sudo su - osu..."
+        #miapellidonombreALL=(ALL) /usr/bin/su - admin
+        #miapellidonombreALL=(ALL) /usr/bin/su - osu*
+    - name: Ajustar permisos de sshd_config
+      file:
+        path: "{{ sshd_config_path }}"
+        mode: '0600'
+    - name: Crear archivo adicional de configuración SSH
+      copy:
+        dest: "{{ sellyoursaas_conf }}"
+        content: |
+          # Configuración adicional para SellYourSaas
+          AllowUsers {{ user_login }}
+          PermitRootLogin yes
+          PasswordAuthentication yes
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Reiniciar SSH
+      service:
+        name: ssh
+        state: restarted
+
+    - name: Crear entrada sudo personalizada
+      copy:
+        dest: "{{ sudoers_file }}"
+        content: "{{ user_login }} ALL=(ALL) NOPASSWD:ALL"
+        owner: root
+        group: root
+        mode: '0440'
+
+    - name: Establecer contraseña de root
+      user:
+        name: root
+        password: "{{ 'p123p123' | password_hash('sha512') }}"
+
+    - name: Establecer contraseña de admin
+      user:
+        name: admin
+        password: "{{ 'p123p123' | password_hash('sha512') }}"
+
+## Comprobaciones
+# cat /proc/sys/vm/vfs_cache_pressure debería mostrar 50
