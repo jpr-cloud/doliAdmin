@@ -47,6 +47,7 @@
 # CONFIGURACIÓN ESPECÍFICA DEPLOYMENT
 # =============================================================================
 - name: "FASE 2.1: Configuración SSH y usuarios en Deploy"
+  hosts: '{{host}}'
   import_playbook: playbooks/deploy/ssh_sudo.yml
 
 - name: "FASE 2.2: Configuración NFS Cliente en Deploy"

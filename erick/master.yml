@@ -36,6 +36,8 @@
     database: "sellyoursaas"
     databaseuser: "sellyoursaas_user"
     databasepass: "p123p123"
+    database_root_password: "p123p123"
+
 
     ## Configuración de la copia de seguridad remota
     remotebackupserver: "ip.of.remote.backup.ssh.server"

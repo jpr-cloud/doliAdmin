@@ -33,7 +33,7 @@ ssh_keys:
 
 # === APLICACIÓN ===
 dolibarr:
-  version: "17.0.1"
+  version: "22.0"
   download_url: "https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz"
   git_repo: "https://github.com/Dolibarr/dolibarr"
 
@@ -54,14 +54,6 @@ database:
 maxscale:
   version: "22.08.7"
   download_url: "https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb"
-
-# === CONFIGURACIÓN PHP ===
-php:
-  version: "7.4"
-  memory_limit: "512M"
-  upload_max_filesize: "50M"
-  post_max_size: "50M"
-  max_execution_time: 300
 
 # === DIRECTORIOS ===
 directories:
