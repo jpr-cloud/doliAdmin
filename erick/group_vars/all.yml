@@ -4,120 +4,126 @@
 
 # === CONFIGURACIÓN DE SERVIDORES ===
 master_server:
-  hostname: "master"
-  ip: "195.201.216.33"
-  domain: "j-cloud.com.mx"
-  fqdn: "master.j-cloud.com.mx"
+  hostname: 'master'
+  ip: '195.201.216.33'
+  domain: 'j-cloud.com.mx'
+  fqdn: 'master.j-cloud.com.mx'
 
 deployment_server:
-  hostname: "deploy"
-  ip: "91.99.229.240"
-  domain: "j-cloud.com.mx"  # Dominio para instancias
-  fqdn: "deploy.j-cloud.com.mx"
+  hostname: 'deploy'
+  ip: '91.99.229.240'
+  domain: 'j-cloud.com.mx'  # Dominio para instancias
+  fqdn: 'deploy.j-cloud.com.mx'
 
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
-  unix_admin: "myunixlogin"
-  unix_admin_password: "p123p123"
-  admin: "admin"
-  admin_password: "admin"
+  unix_admin: 'myunixlogin'
+  unix_admin_password: 'p123p123'
+  admin: 'admin'
+  admin_password: 'admin'
   
-  app_admin: "admin"
+  app_admin: 'admin'
   passwords:
-    root: "p123p123"
-    admin: "p123p123"
+    root: 'p123p123'
+    admin: 'p123p123'
 
 # === USUARIO PERSONAL SYSADMIN ===
-personal_sysadmin_user: "jpyrsaadmin"
-personal_sysadmin_user_password: "p123p123"
+personal_sysadmin_user: 'jpyrsaadmin'
+personal_sysadmin_user_password: 'p123p123'
 
 # === CLAVES SSH ===
 ssh_config:
   port: 22
   
 ssh_keys:
-  admin_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@j-cloud.com.mx"
-  root_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@j-cloud.com.mx"
+  admin_public: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@j-cloud.com.mx'
+  root_public: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@j-cloud.com.mx'
 
 # === APLICACIÓN ===
 dolibarr:
-  #version: "22.0"
-  #download_url: "https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz"
-  git_repo: "https://github.com/Dolibarr/dolibarr"
-  branch: "22.0" ## 22.0
-  repo: "https://github.com/Dolibarr/dolibarr.git"
+  #version: '22.0'
+  #download_url: 'https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz'
+  git_repo: 'https://github.com/Dolibarr/dolibarr'
+  branch: '22.0' ## 22.0
+  repo: 'https://github.com/Dolibarr/dolibarr.git'
   
 sellyoursaas:
-  git_repo: "https://github.com/dolicloud/sellyoursaas"
-  branch: "master"
-  cookie_key: "{{ ansible_hostname }}-{{ ansible_date_time.epoch }}"  # Se genera automáticamente
+  git_repo: 'https://github.com/dolicloud/sellyoursaas'
+  branch: 'master'
+  cookie_key: '{{ ansible_hostname }}-{{ ansible_date_time.epoch }}'  # Se genera automáticamente
 
 # === BASE DE DATOS ===
 database:
-  host: "{{ master_server.ip }}"
+  host: '{{ master_server.ip }}'
   port: 3306
-  main_db: "dolibarr_main"  # Base de datos principal como en main.md
-  user: "sellyoursaas"
-  password: "p123p123"
-  root_password: "p123p123"
+  main_db: 'dolibarr_main'  # Base de datos principal como en main.md
+  user: 'sellyoursaas'
+  password: 'p123p123'
+  root_password: 'p123p123'
 
+php:
+  version: '8.3'
+  memory_limit: '512M'
+  upload_max_filesize: '100M'
+  post_max_size: '100M'
+  max_execution_time: '300'
 maxscale:
-  version: "22.08.7"
-  download_url: "https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb"
+  version: '22.08.7'
+  download_url: 'https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb'
 
 # === DIRECTORIOS ===
 directories:
   # Directorios principales
-  wwwroot: "/home/{{ system_users.app_admin }}/wwwroot"
-  logs: "/home/{{ system_users.app_admin }}/logs"
-  backup: "/home/{{ system_users.app_admin }}/backup"
-  documents: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents"
+  wwwroot: '/home/{{ system_users.app_admin }}/wwwroot'
+  logs: '/home/{{ system_users.app_admin }}/logs'
+  backup: '/home/{{ system_users.app_admin }}/backup'
+  documents: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents'
   
   # Directorios de montaje (como en main.md)
-  diskhome: "/mnt/diskhome"
-  diskbackup: "/mnt/diskbackup"
+  diskhome: '/mnt/diskhome'
+  diskbackup: '/mnt/diskbackup'
   
   # Directorios específicos para deployment
-  instances: "/mnt/diskhome/home"  # Donde se crean las instancias
-  jail: "/home/jail"
-  archives_test: "/mnt/diskbackup/archives-test"
-  archives_paid: "/mnt/diskbackup/archives-paid"
+  instances: '/mnt/diskhome/home'  # Donde se crean las instancias
+  jail: '/home/jail'
+  archives_test: '/mnt/diskbackup/archives-test'
+  archives_paid: '/mnt/diskbackup/archives-paid'
   
   # Directorios de SellYourSaas
-  scripts: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_sellyoursaas/scripts"
-  templates: "/home/{{ system_users.app_admin }}/templates"
-  backups: "/mnt/diskbackup/backup"
+  scripts: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_sellyoursaas/scripts'
+  templates: '/home/{{ system_users.app_admin }}/templates'
+  backups: '/mnt/diskbackup/backup'
   
   # NFS mount point
-  nfs_mount: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas"
+  nfs_mount: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas'
 
 # === NFS ===
 nfs:
   # En master: exportar backup
-  export_path: "{{ directories.backups }}"
-  export_options: "{{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)"
+  export_path: '{{ directories.backups }}'
+  export_options: '{{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)'
   
   # En deployment: montar desde master
-  master_export: "{{ master_server.ip }}:{{ directories.backups }}"
-  mount_point: "{{ directories.nfs_mount }}"
+  master_export: '{{ master_server.ip }}:{{ directories.backups }}'
+  mount_point: '{{ directories.nfs_mount }}'
 
 # === CONFIGURACIÓN DE DISCOS ===
 disk_configuration:
-  device: "/dev/sdb"  # Disco adicional por defecto
-  filesystem_type: "ext4"
-  mount_options: "discard,nofail,defaults"
+  device: '/dev/sdb'  # Disco adicional por defecto
+  filesystem_type: 'ext4'
+  mount_options: 'discard,nofail,defaults'
   auto_mount: true
   format_disk: false  # Cambiar a true si quieres formatear automáticamente
   optimize_memory: true
 
 # === EMAIL Y NOTIFICACIONES ===
 email:
-  smtp_server: "localhost"
+  smtp_server: 'localhost'
   smtp_port: 25
-  from: "soporte@{{ master_server.domain }}"
+  from: 'soporte@{{ master_server.domain }}'
 
 notifications:
-  email: "admin@{{ master_server.domain }}"
+  email: 'admin@{{ master_server.domain }}'
 
 # === PAQUETES A INSTALAR ===
 ## Tomado desde Dolibarr
@@ -256,7 +262,7 @@ apache_modules:
   - vhost_alias
   - mpm_itk
   - mpm_prefork
-  - php7.4
+  - php
 
 # === CONFIGURACIONES APACHE ===
 apache_configs:
@@ -268,29 +274,29 @@ apache_configs:
 # === CRON JOBS ===
 cron_jobs:
   master:
-    - name: "Backup MySQL system"
-      minute: "10"
-      hour: "0"
-      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1"
-    - name: "Set permissions"
-      minute: "0"
-      hour: "4"
-      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >{{ directories.logs }}/perms.log"
-    - name: "Backup backups"
-      minute: "40"
-      hour: "15"
-      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1"
-    - name: "Detect evil instances"
-      minute: "0"
-      hour: "9"
-      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1"
+    - name: 'Backup MySQL system'
+      minute: '10'
+      hour: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1'
+    - name: 'Set permissions'
+      minute: '0'
+      hour: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >{{ directories.logs }}/perms.log'
+    - name: 'Backup backups'
+      minute: '40'
+      hour: '15'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1'
+    - name: 'Detect evil instances'
+      minute: '0'
+      hour: '9'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1'
   
   deployment:
-    - name: "Clean instances"
-      minute: "40"
-      hour: "4"
-      day: "4"
-      job: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm"
+    - name: 'Clean instances'
+      minute: '40'
+      hour: '4'
+      day: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm'
 
 # === WATCHDOGS ===
 watchdog_services:
@@ -335,8 +341,8 @@ log_files:
     - /var/log/daemon.log
   
   admin:
-    - "{{ directories.documents }}/dolibarr_register.log"
-    - "{{ directories.documents }}/dolibarr.log"
+    - '{{ directories.documents }}/dolibarr_register.log'
+    - '{{ directories.documents }}/dolibarr.log'
 
 # === BLACKLIST FILES ===
 blacklist_files:
