@@ -31,7 +31,7 @@
     - name: "Crear usuario {{ system_users.admin }}"
       user:
         name: "{{ system_users.admin }}"
-        group: '{{ system_users.admin }}, www-data'
+        group: '{{ system_users.admin }}'
         shell: /usr/bin/bash
         create_home: yes
         state: present
