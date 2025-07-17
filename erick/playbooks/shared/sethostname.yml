@@ -1,0 +1,37 @@
+# =============================================================================
+# CONFIGURACIÓN DE HOSTNAME
+# =============================================================================
+# Este playbook configura el hostname de un servidor
+# Variables del inventario:
+#   - hostname_main: El hostname a configurar (definido en hosts.cfg)
+# =============================================================================
+---
+- name: Estableciendo hostname
+  hosts: '{{ target }}'
+  tasks:
+    - name: Mostrar información del hostname
+      debug:
+        msg: |
+          Configurando hostname: {{ hostname_main }}
+          #En servidor: {{ inventory_hostname }}
+          #IP: {{ ansible_host | default('N/A') }}
+          #Tipo: {{ server_type | default('N/A') }}
+
+    - name: Configurar hostname del servidor
+      hostname:
+        name: "{{ hostname_main }}"
+      
+    - name: Verificar hostname configurado
+      command: hostname
+      register: current_hostname
+      
+    - name: Mostrar hostname actual
+      debug:
+        msg: "Hostname configurado: {{ current_hostname.stdout }}"
+
+    - name: Actualizar /etc/hosts con el nuevo hostname
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: "127.0.1.1 {{ hostname_main }}"
+        backup: yes

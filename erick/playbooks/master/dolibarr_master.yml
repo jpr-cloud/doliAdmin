@@ -3,174 +3,163 @@
 # =============================================================================
 ---
 - name: "Instalación Dolibarr Master"
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Descargar Dolibarr {{ dolibarr.version }}"
-      get_url:
-        url: "{{ dolibarr.download_url }}"
-        dest: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
-        mode: '0644'
+#    - name: "Descargar Dolibarr {{ dolibarr.version }}"
+#      get_url:
+#        url: "{{ dolibarr.download_url }}"
+#        dest: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
+#        mode: '0644'
+#
+#    - name: "Extraer Dolibarr"
+#      unarchive:
+#        src: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
+#        dest: "{{ directories.wwwroot }}"
+#        remote_src: yes
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0755'
+#
+#    - name: "Crear enlace simbólico a la versión actual"
+#      file:
+#        src: "{{ directories.wwwroot }}/dolibarr-{{ dolibarr.version }}"
+#        dest: "{{ directories.wwwroot }}/dolibarr"
+#        state: link
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+    - name: Configurando Git safe directory para Dolibarr
+      ansible.builtin.command:
+        cmd: git config --global --add safe.directory /home/{{ system_users.admin }}/wwwroot/dolibarr
+    - name: Clonando Dolibarr desde {{ dolibarr.repo }} en la rama {{ dolibarr.branch }}
+      ansible.builtin.git:
+        repo: "{{ dolibarr.repo }}"
+        #dest: /home/{{ system_users.admin }}/wwwroot/dolibarr
+        dest: /home/{{ system_users.admin }}/wwwroot
+        version: "{{ dolibarr.branch }}"
+        force: yes
+        update: yes
+      become_user: "{{ superadmin }}"
+      when: dolibarr.repo is defined and dolibarr.branch is defined
 
-    - name: "Extraer Dolibarr"
-      unarchive:
-        src: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
-        dest: "{{ directories.wwwroot }}"
-        remote_src: yes
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0755'
+## Clonando SellYourSaas
+    - name: Configurando Git safe directory para SellYourSaas
+      ansible.builtin.command:
+        cmd: git config --global --add safe.directory /home/{{ superadmin }}/wwwroot
+    - name: Clonando SellYourSaas desde {{ sellyoursaas.git_repo }} en la rama {{ sellyoursaas.git_branch }}
+      ansible.builtin.git:
+        repo: "{{ sellyoursaas.git_repo }}"
+        dest: /home/{{ superadmin }}/wwwroot
+        force: yes
+        update: yes
+      become_user: "{{ superadmin }}"
 
-    - name: "Crear enlace simbólico a la versión actual"
-      file:
-        src: "{{ directories.wwwroot }}/dolibarr-{{ dolibarr.version }}"
-        dest: "{{ directories.wwwroot }}/dolibarr"
-        state: link
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-
-    - name: "Descargar SellYourSaas plugin"
-      get_url:
-        url: "{{ sellyoursaas.download_url }}"
-        dest: "/tmp/sellyoursaas.zip"
-        mode: '0644'
-
-    - name: "Crear directorio custom/sellyoursaas"
-      file:
-        path: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0755'
-
-    - name: "Extraer SellYourSaas plugin"
-      unarchive:
-        src: "/tmp/sellyoursaas.zip"
-        dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/"
-        remote_src: yes
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0755'
-
-    - name: "Configurar permisos de directorios Dolibarr"
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0775'
-        recurse: yes
-      loop:
-        - "{{ directories.wwwroot }}/dolibarr/htdocs/conf"
-        - "{{ directories.wwwroot }}/dolibarr/documents"
-        - "{{ directories.wwwroot }}/dolibarr/htdocs/custom"
-
-    - name: "Crear configuración inicial de Dolibarr"
-      template:
-        src: dolibarr_conf.php.j2
-        dest: "{{ directories.wwwroot }}/dolibarr/htdocs/conf/conf.php"
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
-      vars:
-        db_host: "{{ master_server.ip }}"
-        db_name: "{{ database.main_db }}"
-        db_user: "{{ database.user }}"
-        db_pass: "{{ database.password }}"
-
-    - name: "Crear archivo de configuración de Dolibarr"
-      blockinfile:
-        path: "{{ directories.wwwroot }}/dolibarr/htdocs/conf/conf.php"
-        create: yes
-        marker: "// {mark} ANSIBLE MANAGED DOLIBARR CONFIG"
-        block: |
-          <?php
-          // Configuración de base de datos
-          $dolibarr_main_url_root='https://admin.{{ master_server.domain }}';
-          $dolibarr_main_document_root='{{ directories.wwwroot }}/dolibarr/htdocs';
-          $dolibarr_main_url_root_alt='/custom';
-          $dolibarr_main_document_root_alt='{{ directories.wwwroot }}/dolibarr/htdocs/custom';
-          $dolibarr_main_data_root='{{ directories.wwwroot }}/dolibarr/documents';
-          $dolibarr_main_db_host='{{ master_server.ip }}';
-          $dolibarr_main_db_port='3306';
-          $dolibarr_main_db_name='{{ database.main_db }}';
-          $dolibarr_main_db_prefix='llx_';
-          $dolibarr_main_db_user='{{ database.user }}';
-          $dolibarr_main_db_pass='{{ database.password }}';
-          $dolibarr_main_db_type='mysqli';
-          $dolibarr_main_db_character_set='utf8mb4';
-          $dolibarr_main_db_collation='utf8mb4_unicode_ci';
-          
-          // Configuración de SellYourSaas
-          $dolibarr_main_authentication='dolibarr';
-          $dolibarr_main_force_https='1';
-          $dolibarr_main_prod='1';
-          $dolibarr_main_restrict_os_commands='mysqldump, mysql, pg_dump, pgrestore';
-          
-          // Configuración de instancias
-          $dolibarr_main_instance_unique_id='{{ ansible_hostname }}';
-          $dolibarr_main_cookie_cryptkey='{{ sellyoursaas.cookie_key }}';
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
-
-    - name: "Configurar archivo install.lock"
-      file:
-        path: "{{ directories.wwwroot }}/dolibarr/documents/install.lock"
-        state: touch
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
-
-    - name: "Configurar SellYourSaas"
-      blockinfile:
-        path: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/conf/conf.php"
-        create: yes
-        marker: "// {mark} ANSIBLE MANAGED SELLYOURSAAS CONFIG"
-        block: |
-          <?php
-          // Configuración específica de SellYourSaas
-          global $conf;
-          
-          // Servidor de despliegue
-          $conf->global->SELLYOURSAAS_DEPLOYMENT_SERVER = '{{ deployment_server.ip }}';
-          $conf->global->SELLYOURSAAS_DEPLOYMENT_USER = '{{ system_users.app_admin }}';
-          
-          // Configuración de instancias
-          $conf->global->SELLYOURSAAS_ACCOUNT_URL = 'https://myaccount.{{ master_server.domain }}';
-          $conf->global->SELLYOURSAAS_DEFAULT_DOMAIN = '{{ deployment_server.domain }}';
-          $conf->global->SELLYOURSAAS_ROOT_PATH = '{{ directories.wwwroot }}/dolibarr_instances';
-          
-          // Configuración de base de datos para instancias
-          $conf->global->SELLYOURSAAS_DB_HOST = '{{ master_server.ip }}';
-          $conf->global->SELLYOURSAAS_DB_USER = '{{ database.user }}';
-          $conf->global->SELLYOURSAAS_DB_PASS = '{{ database.password }}';
-          
-          // Configuración de backup
-          $conf->global->SELLYOURSAAS_BACKUP_PATH = '{{ directories.backups }}';
-          
-          // Email configuration
-          $conf->global->MAIN_MAIL_SMTP_SERVER = '{{ email.smtp_server }}';
-          $conf->global->MAIN_MAIL_SMTP_PORT = '{{ email.smtp_port }}';
-          $conf->global->MAIN_MAIL_EMAIL_FROM = '{{ email.from }}';
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
-
-    - name: "Configurar permisos finales"
-      file:
-        path: "{{ directories.wwwroot }}/dolibarr"
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0755'
-        recurse: yes
-
-    - name: "Limpiar archivos temporales"
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
-        - "/tmp/sellyoursaas.zip"
+#    - name: "Crear configuración inicial de Dolibarr"
+#      template:
+#        src: dolibarr_conf.php.j2
+#        dest: "{{ directories.wwwroot }}/dolibarr/htdocs/conf/conf.php"
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0644'
+#      vars:
+#        db_host: "{{ master_server.ip }}"
+#        db_name: "{{ database.main_db }}"
+#        db_user: "{{ database.user }}"
+#        db_pass: "{{ database.password }}"
+#
+#    - name: "Crear archivo de configuración de Dolibarr"
+#      blockinfile:
+#        path: "{{ directories.wwwroot }}/dolibarr/htdocs/conf/conf.php"
+#        create: yes
+#        marker: "// {mark} ANSIBLE MANAGED DOLIBARR CONFIG"
+#        block: |
+#          <?php
+#          // Configuración de base de datos
+#          $dolibarr_main_url_root='https://admin.{{ master_server.domain }}';
+#          $dolibarr_main_document_root='{{ directories.wwwroot }}/dolibarr/htdocs';
+#          $dolibarr_main_url_root_alt='/custom';
+#          $dolibarr_main_document_root_alt='{{ directories.wwwroot }}/dolibarr/htdocs/custom';
+#          $dolibarr_main_data_root='{{ directories.wwwroot }}/dolibarr/documents';
+#          $dolibarr_main_db_host='{{ master_server.ip }}';
+#          $dolibarr_main_db_port='3306';
+#          $dolibarr_main_db_name='{{ database.main_db }}';
+#          $dolibarr_main_db_prefix='llx_';
+#          $dolibarr_main_db_user='{{ database.user }}';
+#          $dolibarr_main_db_pass='{{ database.password }}';
+#          $dolibarr_main_db_type='mysqli';
+#          $dolibarr_main_db_character_set='utf8mb4';
+#          $dolibarr_main_db_collation='utf8mb4_unicode_ci';
+#          
+#          // Configuración de SellYourSaas
+#          $dolibarr_main_authentication='dolibarr';
+#          $dolibarr_main_force_https='1';
+#          $dolibarr_main_prod='1';
+#          $dolibarr_main_restrict_os_commands='mysqldump, mysql, pg_dump, pgrestore';
+#          
+#          // Configuración de instancias
+#          $dolibarr_main_instance_unique_id='{{ ansible_hostname }}';
+#          $dolibarr_main_cookie_cryptkey='{{ sellyoursaas.cookie_key }}';
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0644'
+#
+#    - name: "Configurar archivo install.lock"
+#      file:
+#        path: "{{ directories.wwwroot }}/dolibarr/documents/install.lock"
+#        state: touch
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0644'
+#
+#    - name: "Configurar SellYourSaas"
+#      blockinfile:
+#        path: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/conf/conf.php"
+#        create: yes
+#        marker: "// {mark} ANSIBLE MANAGED SELLYOURSAAS CONFIG"
+#        block: |
+#          <?php
+#          // Configuración específica de SellYourSaas
+#          global $conf;
+#          
+#          // Servidor de despliegue
+#          $conf->global->SELLYOURSAAS_DEPLOYMENT_SERVER = '{{ deployment_server.ip }}';
+#          $conf->global->SELLYOURSAAS_DEPLOYMENT_USER = '{{ system_users.app_admin }}';
+#          
+#          // Configuración de instancias
+#          $conf->global->SELLYOURSAAS_ACCOUNT_URL = 'https://myaccount.{{ master_server.domain }}';
+#          $conf->global->SELLYOURSAAS_DEFAULT_DOMAIN = '{{ deployment_server.domain }}';
+#          $conf->global->SELLYOURSAAS_ROOT_PATH = '{{ directories.wwwroot }}/dolibarr_instances';
+#          
+#          // Configuración de base de datos para instancias
+#          $conf->global->SELLYOURSAAS_DB_HOST = '{{ master_server.ip }}';
+#          $conf->global->SELLYOURSAAS_DB_USER = '{{ database.user }}';
+#          $conf->global->SELLYOURSAAS_DB_PASS = '{{ database.password }}';
+#          
+#          // Configuración de backup
+#          $conf->global->SELLYOURSAAS_BACKUP_PATH = '{{ directories.backups }}';
+#          
+#          // Email configuration
+#          $conf->global->MAIN_MAIL_SMTP_SERVER = '{{ email.smtp_server }}';
+#          $conf->global->MAIN_MAIL_SMTP_PORT = '{{ email.smtp_port }}';
+#          $conf->global->MAIN_MAIL_EMAIL_FROM = '{{ email.from }}';
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0644'
+#
+#    - name: "Configurar permisos finales"
+#      file:
+#        path: "{{ directories.wwwroot }}/dolibarr"
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0755'
+#        recurse: yes
+#
+#    - name: "Limpiar archivos temporales"
+#      file:
+#        path: "{{ item }}"
+#        state: absent
+#      loop:
+#        - "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
+#        - "/tmp/sellyoursaas.zip"

@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración Fail2ban Master"
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
@@ -95,7 +95,7 @@
       blockinfile:
         path: /etc/fail2ban/jail.local
         marker: "# {mark} ANSIBLE MANAGED WHITELIST"
-        insertafter: "^\[DEFAULT\]"
+        insertafter: "^\\[DEFAULT\\]"
         block: |
           # IPs siempre permitidas
           ignoreip = 127.0.0.1/8 ::1 {{ master_server.ip }} {{ deployment_server.ip }}

@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración de alias básicos en master"
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
@@ -17,7 +17,7 @@
           alias ll='ls -alF'
           alias la='ls -A'
           alias l='ls -CF'
-          
+          alias grep='grep --color=auto'
           # History configuration for admin tasks
           HISTIGNORE='-*'
           export HISTIGNORE

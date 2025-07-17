@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración de Logrotate"
-  hosts: sellyoursaas
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 

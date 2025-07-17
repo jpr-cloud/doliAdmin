@@ -116,7 +116,7 @@
       blockinfile:
         path: /etc/fail2ban/jail.local
         marker: "# {mark} ANSIBLE MANAGED DEPLOY WHITELIST"
-        insertafter: "^\[DEFAULT\]"
+        insertafter: "^\\[DEFAULT\\]"
         block: |
           # IPs siempre permitidas en servidor de deployment
           ignoreip = 127.0.0.1/8 ::1 {{ master_server.ip }} {{ deployment_server.ip }}

@@ -1,0 +1,9 @@
+---
+master:
+  host:
+    - vault-master.example.com
+    - vault-master2.example.com
+deplyment:
+  host:
+    - vault-deploy.example.com
+    - vault-deploy2.example.com

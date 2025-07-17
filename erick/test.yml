@@ -1,0 +1,31 @@
+# =============================================================================
+# TEST PLAYBOOK
+# =============================================================================
+# Este playbook de prueba invoca otros playbooks modulares
+# 
+# Ejemplos de uso:
+# ansible-playbook -e 'target=deploy.j-cloud.com.mx' erick/playbooks/test.yml
+# ansible-playbook -e 'target=master.j-cloud.com.mx' erick/playbooks/test.yml
+# ansible-playbook -e 'target=master' erick/playbooks/test.yml
+# ansible-playbook -e 'target=deploy' erick/playbooks/test.yml
+# =============================================================================
+---
+- name: Test - Mostrar información del target
+  hosts: '{{ target }}'
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Verificar variables del inventario
+      debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          Hostname a configurar: {{ hostname_main }}
+          Tipo de servidor: {{ server_type | default('N/A') }}
+
+# Importar el playbook de configuración de hostname
+- import_playbook: playbooks/shared/sethostname.yml
+- import_playbook: playbooks/shared/user_create.yml
+  vars:
+    login: "{{ system_users.admin }}"
+    

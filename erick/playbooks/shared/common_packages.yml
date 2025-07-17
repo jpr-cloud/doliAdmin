@@ -3,11 +3,23 @@
 # =============================================================================
 ---
 - name: "Instalación de paquetes del sistema"
-  hosts: sellyoursaas
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
   tasks:
+    - name: "Verificar variables de paquetes requeridas"
+      assert:
+        that:
+          - packages_basic is defined
+          - packages_database is defined
+          - packages_web is defined
+          - packages_php is defined
+          - packages_security is defined
+          - packages_additional is defined
+        fail_msg: "Faltan variables de paquetes en group_vars/all.yml"
+        success_msg: "Variables de paquetes verificadas correctamente"
+
     - name: "Actualizar cache de paquetes"
       apt:
         update_cache: yes
@@ -17,44 +29,107 @@
       package:
         name: unattended-upgrades
         state: absent
-
+# Paquetes básicos
     - name: "Instalar paquetes básicos"
       package:
         name: "{{ packages_basic }}"
         state: present
-
+      register: basic_packages_output
+      
+    - name: "Mostrar paquetes básicos instalados"
+      debug:
+        msg: "Paquetes básicos: instalación {{ 'exitosa' if basic_packages_output.changed else 'sin cambios' }}"
+# DB
     - name: "Instalar paquetes de base de datos"
       package:
         name: "{{ packages_database }}"
         state: present
-
+      register: database_packages_output
+      
+    - name: "Mostrar paquetes de base de datos instalados"
+      debug:
+        msg: "Paquetes de BD: instalación {{ 'exitosa' if database_packages_output.changed else 'sin cambios' }}"
     - name: "Instalar paquetes web"
       package:
         name: "{{ packages_web }}"
         state: present
+      register: web_packages_output
 
     - name: "Instalar paquetes PHP"
       package:
         name: "{{ packages_php }}"
         state: present
+      register: php_packages_output
 
     - name: "Instalar paquetes de seguridad"
       package:
         name: "{{ packages_security }}"
         state: present
+      register: security_packages_output
 
     - name: "Instalar paquetes adicionales"
       package:
         name: "{{ packages_additional }}"
         state: present
+      register: additional_packages_output
 
-    - name: "Compilar e instalar extensión mcrypt para PHP"
-      shell: |
-        pecl install mcrypt
-        echo 'extension=mcrypt.so' > /etc/php/{{ php.version }}/mods-available/mcrypt.ini
-        phpenmod mcrypt
-      args:
-        creates: "/etc/php/{{ php.version }}/mods-available/mcrypt.ini"
+    - name: "Mostrar resumen de instalación de paquetes"
+      debug:
+        msg: |
+          === RESUMEN DE INSTALACIÓN DE PAQUETES ===
+          Paquetes básicos: {{ 'instalados' if basic_packages_output.changed else 'sin cambios' }}
+          Paquetes BD: {{ 'instalados' if database_packages_output.changed else 'sin cambios' }}
+          Paquetes web: {{ 'instalados' if web_packages_output.changed else 'sin cambios' }}
+          Paquetes PHP: {{ 'instalados' if php_packages_output.changed else 'sin cambios' }}  
+          Paquetes seguridad: {{ 'instalados' if security_packages_output.changed else 'sin cambios' }}
+          Paquetes adicionales: {{ 'instalados' if additional_packages_output.changed else 'sin cambios' }}
+          ==========================================
+
+    - name: "Verificar estado de paquetes clave"
+      command: dpkg -l {{ item }}
+      register: package_check
+      failed_when: false
+      changed_when: false
+      loop:
+        - apache2
+        - php
+        - mariadb-server
+        - fail2ban
+      when: ansible_pkg_mgr == "apt"
+
+    - name: "Mostrar estado de paquetes clave"
+      debug:
+        msg: |
+          === PAQUETES CLAVE VERIFICADOS ===
+          {% for result in package_check.results %}
+          {{ result.item }}: {{ 'instalado' if result.rc == 0 else 'no instalado' }}
+          {% endfor %}
+          =================================
+      when: package_check is defined
+
+    - name: "Verificar versión de PHP instalada"
+      command: php --version
+      register: php_version_output
+      changed_when: false
+
+    - name: "Mostrar versión de PHP"
+      debug:
+        msg: "Versión de PHP instalada: {{ php_version_output.stdout_lines[0] }}"
+
+#    - name: "Compilar e instalar extensión mcrypt para PHP"
+#      shell: |
+#        pecl install mcrypt
+#        echo 'extension=mcrypt.so' > /etc/php/{{ php.version }}/mods-available/mcrypt.ini
+#        phpenmod mcrypt
+#      args:
+#        creates: "/etc/php/{{ php.version }}/mods-available/mcrypt.ini"
+#      ignore_errors: yes
+#      register: mcrypt_install#
+#    - name: "Mostrar resultado de instalación mcrypt"
+#      debug:
+#        msg: |
+#          Instalación mcrypt: {{ 'exitosa' if mcrypt_install.rc == 0 else 'falló - se puede ignorar' }}
+#          {{ mcrypt_install.stdout if mcrypt_install.stdout is defined else '' }}
 
     - name: "Configurar timezone"
       timezone:

@@ -5,19 +5,24 @@
 # =============================================================================
 ---
 - name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
-  hosts: localhost
+  hosts: master
   gather_facts: no
   tasks:
-    - name: "Mostrar información de instalación Master"
-      debug:
-        msg:
-          - "=========================================="
-          - "  INSTALACIÓN SOLO SERVIDOR MASTER"
-          - "=========================================="
-          - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
-          - "Dominio Master: {{ master_server.domain }}"
-          - "Versión Dolibarr: {{ dolibarr.version }}"
-          - "=========================================="
+
+
+# =============================================================================
+# CONFIGURACIÓN DE HOSTNAME MASTER
+# =============================================================================
+- name: "Configuración de hostname Master"
+  hosts: master
+  become: true
+  tasks:
+    - name: "Configurar hostname del servidor Master"
+      include_tasks: playbooks/shared/sethostname_tasks.yml
+      vars:
+        hostname_main: "{{ target }}"
+
+# Unix admin account {admin}
 
 # =============================================================================
 # CONFIGURACIÓN BÁSICA MASTER
@@ -25,7 +30,7 @@
 - name: "FASE 1: Instalación de paquetes comunes en Master"
   import_playbook: playbooks/shared/common_packages.yml
   vars:
-    ansible_limit: master
+    target: master
 
 # =============================================================================
 # CONFIGURACIÓN ESPECÍFICA MASTER
@@ -39,32 +44,41 @@
 - name: "FASE 2.3: Configuración PHP en Master"
   import_playbook: playbooks/shared/php_config.yml
   vars:
-    ansible_limit: master
+    target: master
 
+# TODO: Configuración de PHP-FPM y ajustes específicos
 - name: "FASE 2.4: Configuración Apache en Master"
   import_playbook: playbooks/master/apache_master.yml
-
+  vars:
+    target: master
+# TODO: Configuración de Mariadb
 - name: "FASE 2.5: Configuración MariaDB en Master"
   import_playbook: playbooks/master/mariadb_master.yml
+  vars:
+    target: master
 
 - name: "FASE 2.6: Configuración Fail2ban en Master"
   import_playbook: playbooks/master/fail2ban_master.yml
 
 - name: "FASE 2.7: Configuración SSL/Certbot en Master"
   import_playbook: playbooks/master/certbot_master.yml
+  vars:
+    target: master
 
 - name: "FASE 2.8: Instalación Dolibarr en Master"
   import_playbook: playbooks/master/dolibarr_master.yml
+  vars:
+    target: master
 
 - name: "FASE 2.9: Configuración Logrotate en Master"
   import_playbook: playbooks/shared/logrotate.yml
   vars:
-    ansible_limit: master
+    host: master
 
 - name: "FASE 2.10: Configuración Cron en Master"
   import_playbook: playbooks/shared/cron.yml
   vars:
-    ansible_limit: master
+    target: master
 
 - name: "FASE 2.11: Configuración alias básicos en Master"
   import_playbook: playbooks/master/master_alias.yml
@@ -72,7 +86,7 @@
 - name: "FASE 2.12: Configuración AFICK en Master"
   import_playbook: playbooks/shared/afick.yml
   vars:
-    ansible_limit: master
+    target: master
 
 - name: "FASE 2.13: Configuración Watchdog en Master"
   import_playbook: playbooks/master/watchdog_master.yml

@@ -8,49 +8,55 @@
   gather_facts: yes
 
   tasks:
-    - name: "Configurar hostname del servidor"
-      hostname:
-        name: "{{ deployment_server.hostname }}"
+#    - name: "Configurar hostname del servidor"
+#      hostname:
+#        name: "{{ deployment_server.hostname }}"
 
-    - name: "Actualizar /etc/hosts"
-      blockinfile:
-        path: /etc/hosts
-        marker: "# {mark} ANSIBLE MANAGED HOSTS"
-        block: |
-          {{ deployment_server.ip }}    {{ deployment_server.fqdn }}
-          {{ master_server.ip }}        {{ master_server.fqdn }}
+#    - name: "Actualizar /etc/hosts"
+#      blockinfile:
+#        path: /etc/hosts
+#        marker: "# {mark} ANSIBLE MANAGED HOSTS"
+#        block: |
+#          {{ deployment_server.ip }}    {{ deployment_server.fqdn }}
+#          {{ master_server.ip }}        {{ master_server.fqdn }}
 
-    - name: "Crear usuario administrador"
-      user:
-        name: "{{ system_users.app_admin }}"
-        password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
-        groups: sudo,www-data
-        shell: /bin/bash
-        create_home: yes
+# Se crea el grupo igual al nombre del usuario system_users.admin , esto se debe a que en el playbook de instalación del servidor master
+# se crea un usuario pero no el grupo
+    - name: crear grupo "{{ system_users.admin }}"
+      group:
+        name: "{{ system_users.admin }}"
         state: present
 
-    - name: "Crear directorio .ssh para usuario admin"
-      file:
-        path: "/home/{{ system_users.app_admin }}/.ssh"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: "{{ system_users.app_admin }}"
-        mode: '0700'
+#    - name: "Crear usuario administrador"
+#      user:
+#        name: "{{ system_users.app_admin }}"
+#        password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
+#        groups: sudo,www-data, "{{ system_users.admin }}"
+#        shell: /bin/bash
+#        create_home: yes
+#        state: present
 
-    - name: "Configurar clave SSH para usuario admin"
-      authorized_key:
-        user: "{{ system_users.app_admin }}"
-        key: "{{ ssh_keys.admin_public }}"
-        state: present
+#    - name: "Crear directorio .ssh para usuario admin"
+#      file:
+#        path: "/home/{{ system_users.app_admin }}/.ssh"
+#        state: directory
+#        owner: "{{ system_users.app_admin }}"
+#        group: "{{ system_users.app_admin }}"
+#        mode: '0700'
+#    - name: "Configurar clave SSH para usuario admin"
+#      authorized_key:
+#        user: "{{ system_users.app_admin }}"
+#        key: "{{ ssh_keys.admin_public }}"
+#        state: present
 
-    - name: "Configurar sudo sin password para usuario admin"
-      blockinfile:
-        path: "/etc/sudoers.d/{{ system_users.app_admin }}"
-        create: yes
-        mode: '0440'
-        marker: "# {mark} ANSIBLE MANAGED SUDO"
-        block: |
-          {{ system_users.app_admin }} ALL=(ALL) NOPASSWD:ALL
+#    - name: "Configurar sudo sin password para usuario admin"
+#      blockinfile:
+#        path: "/etc/sudoers.d/{{ system_users.app_admin }}"
+#        create: yes
+#        mode: '0440'
+#        marker: "# {mark} ANSIBLE MANAGED SUDO"
+#        block: |
+#          {{ system_users.app_admin }} ALL=(ALL) NOPASSWD:ALL
 
     - name: "Crear directorios principales para deployment"
       file:

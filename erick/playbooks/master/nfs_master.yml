@@ -12,7 +12,7 @@
       file:
         path: "{{ directories.documents }}/sellyoursaas/spam"
         state: directory
-        owner: "{{ system_users.app_admin }}"
+        owner: "{{ system_users.admin }}"
         group: admin
         mode: '0755'
         recurse: yes
@@ -20,7 +20,7 @@
     - name: "Establecer permisos para dolibarr_documents"
       file:
         path: "{{ directories.documents }}"
-        owner: "{{ system_users.app_admin }}"
+        owner: "{{ system_users.admin }}"
         group: admin
         recurse: yes
 

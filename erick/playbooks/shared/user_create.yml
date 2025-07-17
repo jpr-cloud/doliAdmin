@@ -1,0 +1,143 @@
+---
+# Script to create a system user on servers
+#
+# To run the script:
+# ansible-playbook -K create_user.yml -i hosts-xxx -e 'target=targethost login=user'
+# ansible-playbook -K create_user.yml -i hosts-xxx -e 'target=targethost login=user userroot=0 userpublickey="publickey"'
+# you can specify an IP for that user with the syntax above
+# ansible-playbook -K create_user.yml -i hosts-xxx -e 'target=targethost login=user userip=www.xxx.yyy.zzz userroot=0 userpublickey="publickey"' --limit=*.mydomain.com
+# you can specify if user can get root access with the syntax above
+# ansible-playbook -K create_user.yml -i hosts-xxx -e 'target=targethost login=user userpublickey="publickey" userpassword="passencrypted"' --limit=*.mydomain.com
+#
+
+- name: Create user on target system(s)
+  hosts: '{{target}}'
+  become: yes
+  #become_method: sudo
+  become_user: root
+  tasks:
+  - name: Create system user
+    user:
+      name: '{{ login }}'
+      shell: /bin/bash
+
+  - name: Set public key of user
+    authorized_key:
+      user: '{{ login }}'
+      state: present
+      key: '{{ userpublickey }}'
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+
+  - name: Process line for root access into file /etc/sudoers.d/{{login}}
+    lineinfile:
+      path: /etc/sudoers.d/{{ login }}
+      line: "{{ login }} ALL=(ALL) ALL"
+      owner: root
+      group: root
+      mode: '0440'
+      create: yes
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+      - userroot is defined
+      - userroot|length > 0
+
+  - name: Process line into file /etc/sudoers.d/{{login}} for su admin
+    lineinfile:
+      path: /etc/sudoers.d/{{ login }}
+      line: "{{ login }} ALL=(ALL) /usr/bin/su - admin"
+      owner: root
+      group: root
+      mode: '0440'
+      create: yes
+      state: present
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+      - userroot is not defined
+
+  - name: Process line into file /etc/sudoers.d/{{login}} for su osu
+    lineinfile:
+      path: /etc/sudoers.d/{{ login }}
+      line: "{{ login }} ALL=(ALL) /usr/bin/su - osu*"
+      owner: root
+      group: root
+      mode: '0440'
+      create: yes
+      state: present
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+      - userroot is not defined
+
+  - name: Remove deprecated line into file /etc/sudoers.d/{{login}} for su admin
+    lineinfile:
+      path: /etc/sudoers.d/{{ login }}
+      line: "{{ login }} ALL=(ALL) NOPASSWD:/bin/su - admin"
+      owner: root
+      group: root
+      mode: '0440'
+      create: yes
+      state: absent
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+
+  - name: Remove deprecated line into file /etc/sudoers.d/{{login}} for su osu
+    lineinfile:
+      path: /etc/sudoers.d/{{ login }}
+      line: "{{ login }} ALL=(ALL) NOPASSWD:/bin/su - osu*"
+      owner: root
+      group: root
+      mode: '0440'
+      create: yes
+      state: absent
+    when:
+      - userpublickey is defined
+      - userpublickey|length > 0
+
+#  - name: Add user to AllowUsers in SSH sellyoursaas-users.conf
+#    lineinfile:
+#      path: /etc/ssh/sshd_config.d/sellyoursaas-users.conf
+#      line: "AllowUsers {{ login }}"
+#      create: yes
+#    register: addlineinsshconf
+
+#  - name: Restart SSH service to recognize that new user
+#    service:
+#      name: ssh
+#      state: restarted
+#    when: addlineinsshconf.changed
+
+#  - name: If IP was provided, we remove the file login-allowed-ip.conf file to delete all past entries
+#    ansible.builtin.file:
+#      path: "/etc/sellyoursaas.d/{{ login }}-allowed-ip.conf"
+#      state: absent
+#    when: 
+#      - userip is defined
+#      - userip|length > 0
+
+  # Set the file of allowed IP, used only if masterserver,instanceserver or webserver is 2 in sellyoursaas.conf
+#  - name: If IP was provided, add it to the login-allowed-ip.conf file, file is created if not found
+#    ansible.builtin.lineinfile:
+#      path: "/etc/sellyoursaas.d/{{ login }}-allowed-ip.conf"
+#      line: "Require ip {{ userip }}"
+#      create: yes
+#    ignore_errors: true
+#    when: 
+#      - userip is defined
+#      - userip|length > 0
+   
+  # At the end, update password
+  - name: Update password
+    user:
+      name: '{{ login }}'
+      shell: /bin/bash
+      comment: "User created or modified from desktop_admin_users.php"
+      password: '{{ userpassword }}'
+      update_password: always
+    when: 
+      - userpassword is defined
+      - userpassword|length > 0

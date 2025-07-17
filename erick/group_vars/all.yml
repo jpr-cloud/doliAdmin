@@ -18,13 +18,18 @@ deployment_server:
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
   unix_admin: "myunixlogin"
+  unix_admin_password: "p123p123"
+  admin: "admin"
+  admin_password: "admin"
+  
   app_admin: "admin"
   passwords:
     root: "p123p123"
     admin: "p123p123"
 
 # === USUARIO PERSONAL SYSADMIN ===
-personal_sysadmin_user: "mylastnamefirstname"
+personal_sysadmin_user: "jpyrsaadmin"
+personal_sysadmin_user_password: "p123p123"
 
 # === CLAVES SSH ===
 ssh_config:
@@ -36,10 +41,12 @@ ssh_keys:
 
 # === APLICACIÓN ===
 dolibarr:
-  version: "22.0"
-  download_url: "https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz"
+  #version: "22.0"
+  #download_url: "https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz"
   git_repo: "https://github.com/Dolibarr/dolibarr"
-
+  branch: "22.0" ## 22.0
+  repo: "https://github.com/Dolibarr/dolibarr.git"
+  
 sellyoursaas:
   git_repo: "https://github.com/dolicloud/sellyoursaas"
   branch: "master"
@@ -113,8 +120,10 @@ notifications:
   email: "admin@{{ master_server.domain }}"
 
 # === PAQUETES A INSTALAR ===
+## Tomado desde Dolibarr
+
 packages_basic:
-  - ntp
+#  - ntp
   - git
   - gzip
   - zip
@@ -124,8 +133,8 @@ packages_basic:
   - duc
   - iotop
   - acl
-  - ufw
-  - sudo
+  - snapd
+  - ghostscript
 
 packages_database:
   - mariadb-server
@@ -140,7 +149,7 @@ packages_php:
   - php
   - php-cli
   - libapache2-mod-php
-  - php-fpm
+  #- php-fpm
   - php-gd
   - php-imap
   - php-json
@@ -149,7 +158,7 @@ packages_php:
   - php-curl
   - php-memcached
   - php-imagick
-  - php-geoip
+  #- php-geoip
   - php-intl
   - php-xml
   - php-zip
@@ -162,6 +171,9 @@ packages_php:
   - php-pear
   - php-dev
   - libmcrypt-dev
+  - php-readline
+  - php-xmlrpc
+
 
 packages_security:
   - libapache2-mod-apparmor

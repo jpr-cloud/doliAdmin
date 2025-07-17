@@ -1,0 +1,54 @@
+# =============================================================================
+# CONFIGURACIÓN DE ACCESO SSH
+# =============================================================================
+# Este playbook configura las claves SSH para acceso sin contraseña
+# Uso: ansible-playbook -e 'target=deploy' erick/playbooks/setup-ssh.yml -k
+# =============================================================================
+---
+- name: Configurar acceso SSH
+  hosts: '{{ target }}'
+  gather_facts: false
+  tasks:
+    - name: Generar clave SSH local si no existe
+      local_action:
+        module: openssh_keypair
+        path: ~/.ssh/id_rsa
+        size: 2048
+        type: rsa
+      become: false
+      run_once: true
+
+    - name: Leer clave pública local
+      local_action:
+        module: slurp
+        src: ~/.ssh/id_rsa.pub
+      register: ssh_pub_key
+      become: false
+      run_once: true
+
+    - name: Mostrar información de conexión
+      debug:
+        msg: |
+          Configurando acceso SSH para:
+          Host: {{ inventory_hostname }}
+          IP: {{ ansible_host }}
+          Usuario: {{ ansible_user }}
+
+    - name: Crear directorio .ssh
+      file:
+        path: ~/.ssh
+        state: directory
+        mode: '0700'
+
+    - name: Instalar clave pública
+      authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ ssh_pub_key.content | b64decode }}"
+        state: present
+
+    - name: Probar conexión SSH sin contraseña
+      ping:
+
+    - name: Mostrar resultado
+      debug:
+        msg: "✅ Acceso SSH configurado correctamente para {{ inventory_hostname }}"

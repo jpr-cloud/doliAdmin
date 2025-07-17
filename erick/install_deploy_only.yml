@@ -1,19 +1,19 @@
 # =============================================================================
-# INSTALACIÓN SOLO SERVIDOR DEPLOYMENT
+# INSTALACIÓN  SERVIDOR DEPLOYMENT
 # =============================================================================
-# Este playbook instala únicamente el servidor de deployment
+# Este playbook configura el o los servidores de deployment
 # PREREQUISITO: El servidor master debe estar ya instalado y funcionando
 # =============================================================================
 ---
-- name: "=== INSTALACIÓN SOLO DEPLOYMENT SERVER ==="
-  hosts: localhost
+- name: "=== INSTALACIÓN DEPLOYMENT SERVER ==="
+  hosts: '{{ target }}'
   gather_facts: no
   tasks:
     - name: "Mostrar información de instalación Deployment"
       debug:
         msg:
           - "=========================================="
-          - "  INSTALACIÓN SOLO SERVIDOR DEPLOYMENT"
+          - "  INSTALACIÓN SERVIDOR DEPLOYMENT"
           - "=========================================="
           - "Deploy Server: {{ deployment_server.hostname }} ({{ deployment_server.ip }})"
           - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
