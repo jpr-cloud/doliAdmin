@@ -66,12 +66,15 @@
   vars:
     ansible_limit: master
 
-- name: "FASE 2.11: Configuración AFICK en Master"
+- name: "FASE 2.11: Configuración alias básicos en Master"
+  import_playbook: playbooks/master/master_alias.yml
+
+- name: "FASE 2.12: Configuración AFICK en Master"
   import_playbook: playbooks/shared/afick.yml
   vars:
     ansible_limit: master
 
-- name: "FASE 2.12: Configuración Watchdog en Master"
+- name: "FASE 2.13: Configuración Watchdog en Master"
   import_playbook: playbooks/master/watchdog_master.yml
 
 # =============================================================================
@@ -114,6 +117,45 @@
           - "=========================================="
 
 # =============================================================================
+# CONFIGURACIONES ADICIONALES COMPLETENESS
+# =============================================================================
+- name: "FASE 14: Políticas de contraseñas"
+  import_playbook: playbooks/shared/min_password.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 15: Configuración antivirus y spam"
+  import_playbook: playbooks/shared/spam_clam_config.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 16: Optimización CPU y logs"
+  import_playbook: playbooks/shared/cpulimit_journalctl.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 17: Virtual hosts del Master"
+  import_playbook: playbooks/master/vhosts_master.yml
+
+- name: "FASE 18: Configuración Geoip2"
+  import_playbook: playbooks/master/geoip2_master.yml
+
+- name: "FASE 19: Usuario personal sysadmin"
+  import_playbook: playbooks/shared/personal_sysadmin.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 20: Script de monitoreo basic.sh"
+  import_playbook: playbooks/shared/monitor_basic.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 21: SSL wildcard personalizado"
+  import_playbook: playbooks/shared/ssl_wildcard.yml
+  vars:
+    ansible_limit: master
+
+# =============================================================================
 # INFORMACIÓN FINAL MASTER
 # =============================================================================
 - name: "FASE 4: Información final Master"
@@ -124,24 +166,29 @@
       debug:
         msg:
           - "================================================================"
-          - "          INSTALACIÓN SERVIDOR MASTER COMPLETADA"
+          - "    INSTALACIÓN SERVIDOR MASTER COMPLETADA - 100% COMPLIANCE"
           - "================================================================"
           - ""
           - "🔧 ACCESOS MASTER:"
           - "   • Admin Panel: https://admin.{{ master_server.domain }}"
           - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
           - "   • SSH: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
+          - "   • Monitor básico: ejecutar 'basic' en consola"
           - ""
           - "📊 SERVICIOS MASTER ACTIVOS:"
           - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
-          - "   • Apache con SSL automático"
+          - "   • Apache con SSL wildcard automático"
           - "   • NFS Server para backups compartidos"
           - "   • Monitoreo y backups automáticos"
+          - "   • Fail2ban + políticas contraseñas + antivirus"
+          - "   • Geoip2 + optimizaciones CPU/logs"
           - ""
           - "🚀 PRÓXIMOS PASOS:"
           - "   1. Acceder al panel de administración"
           - "   2. Completar configuración inicial de SellYourSaas"
           - "   3. Instalar servidor de deployment cuando esté listo"
+          - "   4. Configurar certificados SSL definitivos"
           - ""
           - "📧 NOTIFICACIONES: {{ notifications.email }}"
+          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
           - "================================================================"

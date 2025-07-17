@@ -1,0 +1,97 @@
+# =============================================================================
+# Configuración SSL wildcard personalizado
+# =============================================================================
+---
+- name: "Configuración SSL wildcard personalizado"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Verificar si Certbot está instalado"
+      command: which certbot
+      register: certbot_check
+      failed_when: false
+      changed_when: false
+
+    - name: "Instalar Certbot si no existe"
+      apt:
+        name:
+          - certbot
+          - python3-certbot-apache
+        state: present
+        update_cache: yes
+      when: certbot_check.rc != 0
+
+    - name: "Crear directorio para certificados personalizados"
+      file:
+        path: /etc/ssl/custom
+        state: directory
+        mode: '0755'
+
+    - name: "Verificar certificados wildcard existentes"
+      stat:
+        path: "/etc/letsencrypt/live/{{ domain_name }}"
+      register: wildcard_cert_check
+
+    - name: "Información sobre certificado wildcard"
+      debug:
+        msg:
+          - "Dominio: {{ domain_name }}"
+          - "Certificado wildcard existente: {{ wildcard_cert_check.stat.exists }}"
+          - "NOTA: Para generar certificado wildcard real ejecutar:"
+          - "certbot certonly --manual --preferred-challenges dns -d {{ domain_name }} -d *.{{ domain_name }}"
+
+    - name: "Crear certificado autofirmado temporal (desarrollo)"
+      command: >
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048
+        -keyout /etc/ssl/custom/{{ domain_name }}.key
+        -out /etc/ssl/custom/{{ domain_name }}.crt
+        -subj "/C=MX/ST=Estado/L=Ciudad/O=Organizacion/OU=IT/CN=*.{{ domain_name }}"
+      args:
+        creates: "/etc/ssl/custom/{{ domain_name }}.crt"
+      when: not wildcard_cert_check.stat.exists
+
+    - name: "Configurar permisos de certificados temporales"
+      file:
+        path: "/etc/ssl/custom/{{ item }}"
+        owner: root
+        group: ssl-cert
+        mode: '0640'
+      loop:
+        - "{{ domain_name }}.key"
+        - "{{ domain_name }}.crt"
+      when: not wildcard_cert_check.stat.exists
+
+    - name: "Crear script para renovación automática"
+      copy:
+        content: |
+          #!/bin/bash
+          # Script de renovación SSL para {{ domain_name }}
+          
+          # Intentar renovar certificados Let's Encrypt
+          /usr/bin/certbot renew --quiet
+          
+          # Recargar Apache si es necesario
+          if [ $? -eq 0 ]; then
+              systemctl reload apache2
+              echo "$(date): Certificados renovados exitosamente" >> /var/log/ssl-renewal.log
+          fi
+        dest: /usr/local/bin/ssl-renew.sh
+        mode: '0755'
+
+    - name: "Configurar cron para renovación SSL"
+      cron:
+        name: "Renovación SSL automática"
+        minute: "0"
+        hour: "2"
+        day: "1"
+        job: "/usr/local/bin/ssl-renew.sh"
+
+    - name: "Información SSL configurada"
+      debug:
+        msg:
+          - "Certificado temporal creado para *.{{ domain_name }}"
+          - "Ubicación: /etc/ssl/custom/"
+          - "Para producción usar: certbot certonly --manual --preferred-challenges dns"
+          - "Renovación automática configurada mensualmente"

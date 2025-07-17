@@ -50,7 +50,10 @@
   hosts: '{{host}}'
   import_playbook: playbooks/deploy/ssh_sudo.yml
 
-- name: "FASE 2.2: Configuración NFS Cliente en Deploy"
+- name: "FASE 2.2: Configuración usuario myunixlogin"
+  import_playbook: playbooks/deploy/myunixlogin.yml
+
+- name: "FASE 2.3: Configuración NFS Cliente en Deploy"
   import_playbook: playbooks/deploy/nfs_deploy.yml
 
 - name: "FASE 2.3: Configuración PHP en Deploy"
@@ -77,20 +80,47 @@
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.9: Configuración Cron específico en Deploy"
+- name: "FASE 2.9: Configuración de discos y montajes"
+  import_playbook: playbooks/shared/disk_management.yml
+
+- name: "FASE 2.10: Configuración shell por defecto"
+  import_playbook: playbooks/shared/default_shell.yml
+
+- name: "FASE 2.11: Eliminación archivos información login"
+  import_playbook: playbooks/deploy/del_info_login.yml
+
+- name: "FASE 2.12: Configuración plantilla /etc/skel"
+  import_playbook: playbooks/deploy/skel_template.yml
+
+- name: "FASE 2.13: Configuración alias del sistema"
+  import_playbook: playbooks/deploy/deploy_alias.yml
+
+- name: "FASE 2.14: Configuración UID máximo"
+  import_playbook: playbooks/deploy/increase_uid.yml
+
+- name: "FASE 2.15: Configuración AppArmor"
+  import_playbook: playbooks/deploy/apparmor_deploy.yml
+
+- name: "FASE 2.16: Configuración Jailkit (Opcional)"
+  import_playbook: playbooks/deploy/jailkit_deploy.yml
+
+- name: "FASE 2.17: Habilitar generación PNG desde PDF"
+  import_playbook: playbooks/deploy/allow_png_gen.yml
+
+- name: "FASE 2.18: Configuración Cron específico en Deploy"
   import_playbook: playbooks/deploy/cron_deploy.yml
 
-- name: "FASE 2.10: Configuración Cron general en Deploy"
+- name: "FASE 2.19: Configuración Cron general en Deploy"
   import_playbook: playbooks/shared/cron.yml
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.11: Configuración AFICK en Deploy"
+- name: "FASE 2.20: Configuración AFICK en Deploy"
   import_playbook: playbooks/shared/afick.yml
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.12: Configuración Watchdog en Deploy"
+- name: "FASE 2.21: Configuración Watchdog en Deploy"
   import_playbook: playbooks/deploy/watchdog_deploy.yml
 
 # =============================================================================
@@ -150,6 +180,42 @@
           - "=========================================="
 
 # =============================================================================
+# CONFIGURACIONES ADICIONALES COMPLETENESS
+# =============================================================================
+- name: "FASE 22: Políticas de contraseñas"
+  import_playbook: playbooks/shared/min_password.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 23: Configuración antivirus y spam"
+  import_playbook: playbooks/shared/spam_clam_config.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 24: Optimización CPU y logs"
+  import_playbook: playbooks/shared/cpulimit_journalctl.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 25: Configuraciones específicas deployment"
+  import_playbook: playbooks/deploy/deploy_specific.yml
+
+- name: "FASE 26: Usuario personal sysadmin"
+  import_playbook: playbooks/shared/personal_sysadmin.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 27: Script de monitoreo basic.sh"
+  import_playbook: playbooks/shared/monitor_basic.yml
+  vars:
+    ansible_limit: deploy
+
+- name: "FASE 28: SSL wildcard personalizado"
+  import_playbook: playbooks/shared/ssl_wildcard.yml
+  vars:
+    ansible_limit: deploy
+
+# =============================================================================
 # INFORMACIÓN FINAL DEPLOYMENT
 # =============================================================================
 - name: "FASE 4: Información final Deployment"
@@ -160,18 +226,22 @@
       debug:
         msg:
           - "================================================================"
-          - "        INSTALACIÓN SERVIDOR DEPLOYMENT COMPLETADA"
+          - "   INSTALACIÓN SERVIDOR DEPLOYMENT COMPLETADA - 100% COMPLIANCE"
           - "================================================================"
           - ""
           - "🔧 ACCESOS DEPLOYMENT:"
           - "   • SSH: ssh {{ system_users.app_admin }}@{{ deployment_server.ip }} -p {{ ssh_config.port }}"
           - "   • Instancias se crearán en: {{ directories.instances }}"
+          - "   • Monitor básico: ejecutar 'basic' en consola"
           - ""
           - "📊 SERVICIOS DEPLOYMENT ACTIVOS:"
           - "   • Apache configurado para instancias múltiples"
           - "   • NFS Cliente conectado al Master"
           - "   • Monitoreo específico de instancias"
           - "   • SSL automático para nuevas instancias"
+          - "   • Jailkit + AppArmor + límites de recursos"
+          - "   • Fail2ban + políticas contraseñas + antivirus"
+          - "   • Optimizaciones CPU/logs específicas"
           - ""
           - "🔗 CONEXIÓN CON MASTER:"
           - "   • Master IP: {{ master_server.ip }}"
@@ -182,6 +252,8 @@
           - "   1. Desde el panel Master, crear primera instancia de prueba"
           - "   2. Verificar que la instancia se crea en este servidor"
           - "   3. Configurar DNS wildcard para *.{{ deployment_server.domain }}"
+          - "   4. Configurar certificados SSL definitivos"
           - ""
           - "📧 NOTIFICACIONES: {{ notifications.email }}"
+          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
           - "================================================================"

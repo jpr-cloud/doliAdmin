@@ -1,0 +1,69 @@
+# =============================================================================
+# Configuración de Geoip2 para Master
+# =============================================================================
+---
+- name: "Configuración de Geoip2"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Instalar Geoip2"
+      package:
+        name:
+          - geoip-bin
+          - geoip-database
+          - libgeoip1
+          - php-geoip
+        state: present
+
+    - name: "Crear directorio para bases de datos Geoip"
+      file:
+        path: /usr/share/GeoIP
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Descargar base de datos GeoLite2 (si está disponible)"
+      get_url:
+        url: "https://geolite.maxmind.com/download/geoip/database/GeoLiteCountry/GeoIP.dat.gz"
+        dest: /tmp/GeoIP.dat.gz
+        timeout: 30
+      ignore_errors: yes
+
+    - name: "Extraer base de datos GeoIP"
+      unarchive:
+        src: /tmp/GeoIP.dat.gz
+        dest: /usr/share/GeoIP/
+        remote_src: yes
+        owner: root
+        group: root
+      ignore_errors: yes
+
+    - name: "Configurar PHP para usar Geoip"
+      lineinfile:
+        path: /etc/php/8.1/apache2/conf.d/20-geoip.ini
+        line: "extension=geoip"
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart apache2
+
+    - name: "Test básico de Geoip"
+      shell: geoiplookup 8.8.8.8
+      register: geoip_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultado test Geoip"
+      debug:
+        msg: "Geoip test: {{ geoip_test.stdout }}"
+      when: geoip_test.stdout is defined
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

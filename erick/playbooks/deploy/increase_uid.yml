@@ -1,0 +1,56 @@
+# =============================================================================
+# Configuración de UID máximo para deployment
+# =============================================================================
+---
+- name: "Configuración de UID máximo"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Modificar /etc/login.defs para aumentar UID_MAX"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^UID_MAX'
+        line: 'UID_MAX                 500000'
+        backup: yes
+
+    - name: "Modificar /etc/login.defs para aumentar GID_MAX"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^GID_MAX'
+        line: 'GID_MAX                 500000'
+        backup: yes
+
+    - name: "Verificar si existe mpm_itk.conf"
+      stat:
+        path: /etc/apache2/mods-enabled/mpm_itk.conf
+      register: mpm_itk_file
+
+    - name: "Configurar LimitUIDRange en mpm_itk.conf si existe"
+      blockinfile:
+        path: /etc/apache2/mods-enabled/mpm_itk.conf
+        block: |
+          LimitUIDRange 1 500000
+          LimitGIDRange 1 500000
+        marker: "# {mark} ANSIBLE MANAGED UID LIMITS"
+      when: mpm_itk_file.stat.exists
+
+    - name: "Configurar LimitUIDRange en security.conf como alternativa"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/security.conf
+        block: |
+          # UID/GID Limits for SellYourSaas
+          LimitUIDRange 1 500000
+          LimitGIDRange 1 500000
+        marker: "# {mark} ANSIBLE MANAGED UID LIMITS"
+      when: not mpm_itk_file.stat.exists
+
+    - name: "Verificar configuración de UID en login.defs"
+      command: grep -E "UID_MAX|GID_MAX" /etc/login.defs
+      register: uid_config
+      changed_when: false
+
+    - name: "Mostrar configuración de UID"
+      debug:
+        msg: "{{ uid_config.stdout_lines }}"

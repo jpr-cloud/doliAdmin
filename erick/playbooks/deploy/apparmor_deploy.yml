@@ -1,0 +1,87 @@
+# =============================================================================
+# Configuración de AppArmor para Deployment
+# =============================================================================
+---
+- name: "Configuración de AppArmor"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Copiar /bin/dash a /bin/secureBash"
+      copy:
+        src: /bin/dash
+        dest: /bin/secureBash
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: yes
+
+    - name: "Copiar /usr/bin/dash a /usr/bin/secureBash (Ubuntu 20.04+)"
+      copy:
+        src: /usr/bin/dash
+        dest: /usr/bin/secureBash
+        mode: '0755'
+        owner: root
+        group: root
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: "Verificar estado de AppArmor"
+      command: aa-status
+      register: apparmor_status
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar módulo AppArmor en Apache"
+      apache2_module:
+        name: apparmor
+        state: present
+      notify: restart apache2
+
+    - name: "Crear perfil básico de AppArmor para secureBash"
+      copy:
+        content: |
+          #include <tunables/global>
+          
+          /bin/secureBash {
+            #include <abstractions/base>
+            #include <abstractions/bash>
+            #include <abstractions/consoles>
+            #include <abstractions/nameservice>
+            
+            /bin/secureBash rm,
+            /bin/dash rm,
+            /usr/bin/secureBash rm,
+            
+            # Allow basic system access
+            /etc/passwd r,
+            /etc/group r,
+            /etc/nsswitch.conf r,
+            /etc/hosts r,
+            
+            # Allow user home access
+            owner /home/*/** rw,
+            
+            # Deny dangerous operations
+            deny /etc/shadow r,
+            deny /etc/sudoers* r,
+            deny /root/** rw,
+            deny /boot/** rw,
+            deny /sys/** rw,
+            deny /proc/sys/** rw,
+          }
+        dest: /etc/apparmor.d/bin.secureBash
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: "Cargar perfil de AppArmor para secureBash"
+      command: apparmor_parser -r /etc/apparmor.d/bin.secureBash
+      ignore_errors: yes
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

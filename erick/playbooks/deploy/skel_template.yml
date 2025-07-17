@@ -1,0 +1,54 @@
+# =============================================================================
+# Configuración de plantilla /etc/skel
+# =============================================================================
+---
+- name: "Configuración de directorio /etc/skel"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear directorio .ssh en /etc/skel"
+      file:
+        path: /etc/skel/.ssh
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: "Crear archivo authorized_keys_support en /etc/skel"
+      file:
+        path: /etc/skel/.ssh/authorized_keys_support
+        state: touch
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: "Agregar claves SSH de administradores"
+      blockinfile:
+        path: /etc/skel/.ssh/authorized_keys_support
+        block: |
+          # Clave SSH del usuario admin del master
+          {{ ssh_keys.admin_public }}
+          # Clave SSH del usuario root
+          {{ ssh_keys.root_public }}
+        marker: "# {mark} ANSIBLE MANAGED SSH KEYS"
+        create: yes
+
+    - name: "Crear archivo .my.cnf para mysql en /etc/skel"
+      copy:
+        content: |
+          [client]
+          protocol=tcp
+        dest: /etc/skel/.my.cnf
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: "Verificar permisos del directorio .ssh"
+      file:
+        path: /etc/skel/.ssh
+        mode: '0700'
+        owner: root
+        group: root
+        recurse: yes

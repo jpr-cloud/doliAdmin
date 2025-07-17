@@ -1,0 +1,115 @@
+# =============================================================================
+# Configuración de Jailkit para Deployment
+# =============================================================================
+---
+- name: "Configuración de Jailkit"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Instalar Jailkit"
+      package:
+        name: jailkit
+        state: present
+
+    - name: "Remover enlace simbólico /home/jail/home si existe"
+      file:
+        path: /home/jail/home
+        state: absent
+
+    - name: "Crear directorio /home/jail/home"
+      file:
+        path: /home/jail/home
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: "Crear directorio /mnt/diskhome/chroot"
+      file:
+        path: /mnt/diskhome/chroot
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: "Crear directorio /home/jail/chroot"
+      file:
+        path: /home/jail/chroot
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: "Agregar montajes a /etc/fstab para Jailkit"
+      blockinfile:
+        path: /etc/fstab
+        block: |
+          # Jailkit mounts
+          /mnt/diskhome/home /home/jail/home bind defaults,bind 0 0
+          /mnt/diskhome/chroot /home/jail/chroot bind defaults,bind 0 0
+        marker: "# {mark} ANSIBLE MANAGED JAILKIT MOUNTS"
+
+    - name: "Montar directorios de Jailkit"
+      mount:
+        path: "{{ item.path }}"
+        src: "{{ item.src }}"
+        fstype: none
+        opts: bind
+        state: mounted
+      loop:
+        - { src: "/mnt/diskhome/home", path: "/home/jail/home" }
+        - { src: "/mnt/diskhome/chroot", path: "/home/jail/chroot" }
+
+    - name: "Configurar jk_init.ini con secciones adicionales"
+      blockinfile:
+        path: /etc/jailkit/jk_init.ini
+        block: |
+          [groups]
+          comment = Groups management
+          executables = /usr/bin/groups
+
+          [php]
+          comment = The PHP Interpreter and Libraries
+          executables = /usr/bin/php, /usr/bin/php7.4, /usr/bin/php8.0, /usr/bin/php8.1
+          directories = /usr/lib/php, /usr/share/php, /etc/php, /usr/share/zoneinfo
+          includesections = env
+
+          [env]
+          comment = environment variables
+          executables = /usr/bin/env
+
+          [mysqlclient]
+          comment = mysql client
+          executables = /usr/bin/mysql, /usr/bin/mysqldump
+          paths = /usr/lib/x86_64-linux-gnu/libmysqlclient.so*
+          regularfiles = /etc/mysql/my.cnf, /etc/mysql/conf.d/, /etc/mysql/mariadb.conf.d/
+
+          [DEFAULT]
+          env = TERM, PATH
+        marker: "# {mark} ANSIBLE MANAGED JAILKIT CONFIG"
+
+    - name: "Crear directorio template para jailkit"
+      file:
+        path: /home/jail/chroot/template
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: "Inicializar jail template con herramientas básicas"
+      command: >
+        jk_init -c /etc/jailkit/jk_init.ini 
+        -j /home/jail/chroot/template 
+        extendedshell limitedshell groups sftp rsync editors git php mysqlclient
+      args:
+        creates: /home/jail/chroot/template/bin/bash
+
+    - name: "Crear directorio home en template"
+      file:
+        path: /home/jail/chroot/template/home
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root

@@ -1,0 +1,60 @@
+# =============================================================================
+# Configuración y test de Spamassassin y ClamAV
+# =============================================================================
+---
+- name: "Configuración de Spamassassin y ClamAV"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Instalar Spamassassin y ClamAV"
+      package:
+        name:
+          - spamassassin
+          - spamc
+          - clamav
+          - clamav-daemon
+          - clamav-freshclam
+        state: present
+
+    - name: "Configurar Spamassassin"
+      lineinfile:
+        path: /etc/default/spamassassin
+        regexp: '^ENABLED='
+        line: 'ENABLED=1'
+        backup: yes
+
+    - name: "Iniciar y habilitar Spamassassin"
+      systemd:
+        name: spamassassin
+        state: started
+        enabled: yes
+
+    - name: "Actualizar base de datos de ClamAV"
+      command: freshclam
+      ignore_errors: yes
+
+    - name: "Iniciar y habilitar ClamAV"
+      systemd:
+        name: clamav-daemon
+        state: started
+        enabled: yes
+
+    - name: "Test Spamassassin"
+      shell: |
+        echo "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X" | spamc
+      register: spam_test
+      changed_when: false
+
+    - name: "Test ClamAV"
+      shell: |
+        echo "X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*" | clamscan -
+      register: clam_test
+      changed_when: false
+
+    - name: "Mostrar resultados tests"
+      debug:
+        msg:
+          - "Spamassassin test: {{ 'PASS' if 'X-Spam-Flag: YES' in spam_test.stdout else 'FAIL' }}"
+          - "ClamAV test: {{ 'PASS' if 'FOUND' in clam_test.stdout else 'FAIL' }}"

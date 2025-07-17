@@ -1,0 +1,62 @@
+# =============================================================================
+# Configuración de usuario myunixlogin
+# =============================================================================
+---
+- name: "Configuración de usuario personal sysadmin"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear usuario myunixlogin"
+      user:
+        name: "{{ system_users.unix_admin }}"
+        shell: /usr/bin/bash
+        create_home: yes
+        state: present
+
+    - name: "Crear archivo sudoers para myunixlogin"
+      copy:
+        content: |
+          {{ system_users.unix_admin }} ALL=(ALL) ALL
+          # Permite cambiar a admin o osu* sin password
+          {{ system_users.unix_admin }} ALL=(ALL) /usr/bin/su - admin
+          {{ system_users.unix_admin }} ALL=(ALL) /usr/bin/su - osu*
+        dest: "/etc/sudoers.d/{{ system_users.unix_admin }}"
+        mode: '0440'
+        owner: root
+        group: root
+        validate: 'visudo -cf %s'
+
+    - name: "Establecer permisos correctos en sudoers"
+      file:
+        path: "/etc/sudoers.d/{{ system_users.unix_admin }}"
+        mode: '0440'
+        owner: root
+        group: root
+
+    - name: "Agregar configuraciones adicionales a sudoers principal"
+      blockinfile:
+        path: /etc/sudoers
+        block: |
+          # SellYourSaas sudoers configuration
+          Defaults set_home
+          Defaults use_pty
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS SUDOERS"
+        validate: 'visudo -cf %s'
+
+    - name: "Generar claves SSH para el usuario"
+      user:
+        name: "{{ system_users.unix_admin }}"
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+
+    - name: "Verificar que el usuario fue creado correctamente"
+      command: id {{ system_users.unix_admin }}
+      register: user_check
+      changed_when: false
+
+    - name: "Mostrar información del usuario creado"
+      debug:
+        msg: "Usuario {{ system_users.unix_admin }} creado: {{ user_check.stdout }}"

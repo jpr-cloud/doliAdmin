@@ -1,0 +1,25 @@
+# =============================================================================
+# Configuración de Shell por Defecto
+# =============================================================================
+---
+- name: "Configuración de shell por defecto"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Cambiar shell por defecto a bash"
+      file:
+        src: /bin/bash
+        dest: /usr/bin/sh
+        state: link
+        force: yes
+
+    - name: "Verificar que el enlace simbólico sea correcto"
+      command: ls -la /usr/bin/sh
+      register: shell_check
+      changed_when: false
+
+    - name: "Mostrar shell configurado"
+      debug:
+        msg: "Shell por defecto configurado: {{ shell_check.stdout }}"

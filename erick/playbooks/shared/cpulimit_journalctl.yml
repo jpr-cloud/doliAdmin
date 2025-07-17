@@ -1,0 +1,49 @@
+# =============================================================================
+# Configuración de cpulimit y journalctl
+# =============================================================================
+---
+- name: "Configuración de cpulimit y journalctl"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Instalar cpulimit"
+      package:
+        name: cpulimit
+        state: present
+
+    - name: "Configurar journalctl - tamaño máximo"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: 'SystemMaxUse=500M'
+        backup: yes
+
+    - name: "Configurar journalctl - retención"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?MaxRetentionSec='
+        line: 'MaxRetentionSec=1month'
+        backup: yes
+
+    - name: "Configurar journalctl - compresión"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?Compress='
+        line: 'Compress=yes'
+        backup: yes
+
+    - name: "Reiniciar journald"
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: "Verificar configuración de journald"
+      command: journalctl --disk-usage
+      register: journal_usage
+      changed_when: false
+
+    - name: "Mostrar uso del journal"
+      debug:
+        msg: "{{ journal_usage.stdout }}"

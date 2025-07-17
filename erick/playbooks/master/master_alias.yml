@@ -1,0 +1,33 @@
+# =============================================================================
+# Configuración de Alias del Sistema para Master
+# =============================================================================
+---
+- name: "Configuración de alias básicos en master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Agregar alias básicos al final de /etc/bash.bashrc"
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          # SellYourSaas Master Aliases
+          alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'
+          alias ll='ls -alF'
+          alias la='ls -A'
+          alias l='ls -CF'
+          
+          # History configuration for admin tasks
+          HISTIGNORE='-*'
+          export HISTIGNORE
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS MASTER ALIASES"
+
+    - name: "Verificar que se agregaron los alias en master"
+      command: tail -10 /etc/bash.bashrc
+      register: bashrc_check
+      changed_when: false
+
+    - name: "Mostrar alias configurados en master"
+      debug:
+        msg: "Alias básicos configurados en master /etc/bash.bashrc"

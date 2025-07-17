@@ -4,16 +4,16 @@
 
 # === CONFIGURACIÓN DE SERVIDORES ===
 master_server:
-  hostname: "main"
-  ip: "192.168.1.2"
-  domain: "jpyrsa.com.mx"
-  fqdn: "main.jpyrsa.com.mx"
+  hostname: "master"
+  ip: "195.201.216.33"
+  domain: "j-cloud.com.mx"
+  fqdn: "master.j-cloud.com.mx"
 
 deployment_server:
   hostname: "deploy"
-  ip: "192.168.1.3"
-  domain: "a1.jpyrsa.com.mx"  # Dominio para instancias
-  fqdn: "deploy.jpyrsa.com.mx"
+  ip: "91.99.229.240"
+  domain: "j-cloud.com.mx"  # Dominio para instancias
+  fqdn: "deploy.j-cloud.com.mx"
 
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
@@ -23,13 +23,16 @@ system_users:
     root: "p123p123"
     admin: "p123p123"
 
+# === USUARIO PERSONAL SYSADMIN ===
+personal_sysadmin_user: "mylastnamefirstname"
+
 # === CLAVES SSH ===
 ssh_config:
-  port: 2222
+  port: 22
   
 ssh_keys:
-  admin_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@jpyrsa.com.mx"  # Cambiar por tu clave real
-  root_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@jpyrsa.com.mx"   # Cambiar por tu clave real
+  admin_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@j-cloud.com.mx"
+  root_public: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@j-cloud.com.mx"
 
 # === APLICACIÓN ===
 dolibarr:
@@ -90,6 +93,15 @@ nfs:
   # En deployment: montar desde master
   master_export: "{{ master_server.ip }}:{{ directories.backups }}"
   mount_point: "{{ directories.nfs_mount }}"
+
+# === CONFIGURACIÓN DE DISCOS ===
+disk_configuration:
+  device: "/dev/sdb"  # Disco adicional por defecto
+  filesystem_type: "ext4"
+  mount_options: "discard,nofail,defaults"
+  auto_mount: true
+  format_disk: false  # Cambiar a true si quieres formatear automáticamente
+  optimize_memory: true
 
 # === EMAIL Y NOTIFICACIONES ===
 email:

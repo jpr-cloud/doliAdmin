@@ -1,0 +1,52 @@
+# =============================================================================
+# Configuración Virtual Hosts específicos del Master
+# =============================================================================
+---
+- name: "Configuración de Virtual Hosts del Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear archivo .htpasswd para admin"
+      htpasswd:
+        path: /etc/apache2/.htpasswd
+        name: admin
+        password: "{{ system_users.passwords.admin }}"
+        owner: root
+        group: www-data
+        mode: 0640
+
+    - name: "Crear Virtual Host admin.domain.com"
+      template:
+        src: admin_vhost.conf.j2
+        dest: "/etc/apache2/sites-available/admin.{{ master_server.domain }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "Crear Virtual Host myaccount.domain.com"
+      template:
+        src: myaccount_vhost.conf.j2
+        dest: "/etc/apache2/sites-available/myaccount.{{ master_server.domain }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "Habilitar sitios del master"
+      command: "a2ensite {{ item }}"
+      loop:
+        - "admin.{{ master_server.domain }}"
+        - "myaccount.{{ master_server.domain }}"
+      notify: reload apache2
+
+    - name: "Verificar configuración de Apache"
+      command: apache2ctl configtest
+      register: apache_test
+      changed_when: false
+
+  handlers:
+    - name: reload apache2
+      systemd:
+        name: apache2
+        state: reloaded
