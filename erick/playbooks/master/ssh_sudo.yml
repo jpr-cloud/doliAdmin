@@ -8,50 +8,41 @@
   gather_facts: yes
 
   tasks:
-  #  - name: "Establecer hostname del Master"
-  #    hostname:
-  #      name: "{{ master_server.hostname }}"
-
-#    - name: "Actualizar /etc/hosts"
-#      blockinfile:
-#        path: /etc/hosts
-#        block: |
-#          # SellYourSaas Infrastructure
-#          {{ master_server.ip }}     {{ master_server.fqdn }}
-#          {{ deployment_server.ip }} {{ deployment_server.fqdn }}
-#          {{ master_server.ip }}     admin.{{ master_server.domain }}
-#          {{ master_server.ip }}     myaccount.{{ master_server.domain }}
-#        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS HOSTS"
-
-    - name: "Crear grupo {{ system_users.admin }}"
+    # Primero asegurar que el grupo existe
+    - name: "Crear grupo admin"
       group:
-        name: '{{ system_users.admin }}'
+        name: "admin"
         state: present
+      register: group_result
+      failed_when: group_result is failed and "already exists" not in group_result.msg
 
-    - name: "Crear usuario {{ system_users.admin }}"
+    # Luego crear el usuario admin con ese grupo
+    - name: "Crear usuario admin"
       user:
-        name: "{{ system_users.admin }}"
-        group: '{{ system_users.admin }}'
+        name: "admin"
+        group: "admin"
         shell: /usr/bin/bash
         create_home: yes
         state: present
+      register: user_result
+      failed_when: user_result is failed and "already exists" not in user_result.msg
 
+    # Crear el usuario del sistema después
     - name: "Crear usuario de sistema"
       user:
         name: "{{ system_users.unix_admin }}"
         shell: /usr/bin/bash
         create_home: yes
         state: present
+      register: unix_user_result
+      failed_when: unix_user_result is failed and "already exists" not in unix_user_result.msg
 
-#    - name: "Establecer contraseña para root"
-#      user:
-#        name: root
-#        password: "{{ system_users.passwords.root | password_hash('sha512') }}"
-
-    - name: "Establecer contraseña para {{ system_users.admin }}"
+    # Establecer la contraseña para admin
+    - name: "Establecer contraseña para admin"
       user:
-        name: '{{ system_users.admin }}'
+        name: "admin"
         password: "{{ system_users.admin_password | password_hash('sha512') }}"
+      when: user_result is changed
 
     - name: "Crear directorios de trabajo principales"
       file:
