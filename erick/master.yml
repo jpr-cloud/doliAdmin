@@ -497,7 +497,7 @@
 ## Habilitando los módulos de Apache
     - name: Habilitando los módulos de Apache
       ansible.builtin.command:
-        cmd: a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mem_cache mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.0|php7.2|php7.4|php8.1|php8.2
+        cmd: a2enmod actions alias asis auth_basic auth_digest authn_anon authn_dbd authn_dbm authn_file authz_dbm authz_groupfile authz_host authz_owner authz_user autoindex cache cgid cgi charset_lite dav_fs dav dav_lock dbd deflate dir dump_io env expires ext_filter file_cache filter headers http2 ident include info ldap mime mime_magic negotiation reqtimeout rewrite setenvif speling ssl status substitute suexec unique_id userdir usertrack vhost_alias mpm_itk mpm_prefork php7.0|php7.2|php7.4|php8.1|php8.2
       args:
         warn: false 
 ## Deshabilitando los módulos de Apache que no son necesarios
