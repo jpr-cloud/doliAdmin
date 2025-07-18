@@ -24,17 +24,89 @@
         group: admin
         mode: '0700'
 
-    # === GENERAR/CREAR CLAVES SSH ===
-    - name: "Generar claves SSH SellYourSaas"
-      openssh_keypair:
-        path: "/home/admin/.ssh/id_rsa_sellyoursaas"
-        type: rsa
-        size: 4096
-        owner: admin
-        group: admin
-        mode: '0600'
-        comment: "admin@sellyoursaas-{{ inventory_hostname }}"
-      register: ssh_key_generated
+    # =====================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA SERVIDOR MASTER
+    # =====================================================================
+    - name: "Configuración SSH para servidor MASTER"
+      block:
+        - name: "Generar claves SSH SellYourSaas en Master"
+          openssh_keypair:
+            path: "/home/admin/.ssh/id_rsa_sellyoursaas"
+            type: rsa
+            size: 4096
+            owner: admin
+            group: admin
+            mode: '0600'
+            comment: "admin@sellyoursaas-{{ inventory_hostname }}"
+          register: ssh_key_generated
+          
+        - name: "Recuperar contenido de clave privada"
+          slurp:
+            src: "/home/admin/.ssh/id_rsa_sellyoursaas"
+          register: private_key_master
+          
+        - name: "Recuperar contenido de clave pública"
+          slurp:
+            src: "/home/admin/.ssh/id_rsa_sellyoursaas.pub"
+          register: public_key_master
+          
+        - name: "Guardar claves en variables de hecho"
+          set_fact:
+            master_private_key: "{{ private_key_master.content | b64decode }}"
+            master_public_key: "{{ public_key_master.content | b64decode }}"
+      when: server_type == 'master'
+
+    # =====================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA SERVIDOR DEPLOY
+    # =====================================================================
+    - name: "Configuración SSH para servidor DEPLOY"
+      block:
+        # Esta tarea se ejecuta en el servidor de deploy
+        # Pero necesita datos del servidor master, por lo que hacemos una conexión
+        # delegada al master para obtener las claves
+        - name: "Obtener claves SSH del servidor Master"
+          block:
+            - name: "Recuperar clave privada del Master"
+              slurp:
+                src: "/home/admin/.ssh/id_rsa_sellyoursaas"
+              register: private_key_master
+              delegate_to: "{{ groups['master'][0] }}"
+              become: yes
+              
+            - name: "Recuperar clave pública del Master"
+              slurp:
+                src: "/home/admin/.ssh/id_rsa_sellyoursaas.pub"
+              register: public_key_master
+              delegate_to: "{{ groups['master'][0] }}"
+              become: yes
+              
+            - name: "Guardar claves en variables de hecho"
+              set_fact:
+                master_private_key: "{{ private_key_master.content | b64decode }}"
+                master_public_key: "{{ public_key_master.content | b64decode }}"
+          rescue:
+            - name: "Generar mensaje de error si no se pueden obtener las claves del Master"
+              debug:
+                msg: "ERROR: No se pudieron obtener las claves SSH del servidor Master. Asegúrate de que el servidor Master esté configurado y accesible."
+              failed_when: true
+          
+        # Ahora creamos los archivos en el servidor deploy con las claves obtenidas
+        - name: "Crear clave privada en servidor Deploy"
+          copy:
+            content: "{{ master_private_key }}"
+            dest: "/home/admin/.ssh/id_rsa_sellyoursaas"
+            owner: admin
+            group: admin
+            mode: '0600'
+            
+        - name: "Crear clave pública en servidor Deploy"
+          copy:
+            content: "{{ master_public_key }}"
+            dest: "/home/admin/.ssh/id_rsa_sellyoursaas.pub"
+            owner: admin
+            group: admin
+            mode: '0644'
+      when: server_type == 'deploy'
 
     # === ESTABLECER PERMISOS CORRECTOS ===
     - name: "Establecer permisos en claves SSH"
@@ -113,15 +185,14 @@
           - "  • chmod 600 /home/admin/.ssh/config"
           - "  • chown admin:admin /home/admin/.ssh/config"
           - "{{ '=' * 50 }}"
-          - "IMPORTANTE - PASOS MANUALES PARA DEPLOYMENT:"
+          - "PROCESO AUTOMATIZADO:"
           - "{{ '=' * 50 }}"
-          - "1. Copiar claves del Master a cada servidor Deploy:"
-          - "   scp /home/admin/.ssh/id_rsa_sellyoursaas* deploy-server:/home/admin/.ssh/"
-          - "2. Verificar permisos en deployment servers:"
-          - "   chmod u+rw /home/admin/.ssh/id_rsa_sellyoursaas*"
-          - "   chmod go-rw /home/admin/.ssh/id_rsa_sellyoursaas*"
-          - "   chmod a+r /home/admin/.ssh/id_rsa_sellyoursaas.pub"
-          - "3. Configuración SSH config incluye:"
+          - "{% if server_type == 'master' %}"
+          - "✅ Se han generado las claves SSH en el servidor Master"
+          - "{% elif server_type == 'deploy' %}"
+          - "✅ Se han copiado las claves SSH del servidor Master al servidor Deploy"
+          - "{% endif %}"
+          - "✅ Se ha configurado el archivo SSH config con:"
           - "   • Host {{ deployment_server_ip | default('ip.server.deployment') }}"
           - "   • Host github.com"
           - "   • IdentityFile /home/admin/.ssh/id_rsa_sellyoursaas"

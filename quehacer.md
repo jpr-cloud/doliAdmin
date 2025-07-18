@@ -56,6 +56,8 @@ Installation of system and application components| packages | ✅  | ✅ | -
 Disabling automatic update| nattended-upgrades | ✅  | ✅ | -
 Max size increase UID| increase_UID | ⛔ | ✅ | -
 /etc/apache2/mods-enabled/mpm_itk.conf| mpm_itk_conf | ⛔ | ✅ | -
+
+# ====↑ bien verificad (no probado) ↑====
 Apache web server configuration | na | ✅  | ✅ | -
 Enable apache modules  | apache_modules | ✅  | ✅ | -
 Remove this not usefull apache modules | usefull_apache_modules | ✅  | ✅ | agregar a2dismod mcrypt
@@ -73,8 +75,6 @@ Test spamassassin | test_spamassassin | ✅  | ✅ | -
 Test and setup of ClamAV | test_ClamAV | ✅ | ✅ | -
 Afick | Afick | ✅  | ✅ | -
 Setup of cpulimit (optional) | cpulimit | ✅  | ✅ | -
-
-# ====== ↑ VERIFICADO SOLO PARA MASTER Y MASTER + DEPLOY ↑ ======
 Setup of /etc/security/limits.conf (optional)| limits | ⛔ | ✅| -
 Setup of Postfix | na | na | na | Este paso lo hacemos con el proveedor externo
 Setup of Mysql or Mariadb bind-address | Mariadb_bind-address | ✅ | ⛔| -

@@ -1,0 +1,265 @@
+# =============================================================================
+# Configuración NFS - Shared (Master y Deploy)
+# Installing the nfs share
+# =============================================================================
+---
+- name: "Configuración NFS para SellYourSaas"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === CREAR DIRECTORIO DE DOCUMENTOS SELLYOURSAAS ===
+    - name: "Crear directorio de documentos de Dolibarr/SellYourSaas"
+      file:
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+        state: directory
+        owner: admin
+        group: admin
+        mode: '0755'
+        recurse: yes
+
+    # =====================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA SERVIDOR NFS MASTER
+    # =====================================================================
+    - name: "Configuración NFS SERVER (solo en Master)"
+      block:
+        # === INSTALAR NFS SERVER ===
+        - name: "Instalar nfs-kernel-server"
+          package:
+            name: nfs-kernel-server
+            state: present
+            update_cache: yes
+
+        # === CONFIGURAR /etc/exports ===
+        - name: "Crear configuración /etc/exports"
+          template:
+            src: exports.j2
+            dest: /etc/exports
+            owner: root
+            group: root
+            mode: '0644'
+            backup: yes
+          notify: restart nfs-kernel-server
+
+        # === CONFIGURAR PUERTO FIJO PARA MOUNTD ===
+        - name: "Configurar puerto fijo para mountd en /etc/default/nfs-kernel-server"
+          lineinfile:
+            path: /etc/default/nfs-kernel-server
+            regexp: '^RPCMOUNTDOPTS='
+            line: 'RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"'
+            backup: yes
+          notify: restart nfs-kernel-server
+
+        # === COMENTAR LÍNEA ANTIGUA SI EXISTE ===
+        - name: "Comentar configuración antigua de RPCMOUNTDOPTS"
+          replace:
+            path: /etc/default/nfs-kernel-server
+            regexp: '^(RPCMOUNTDOPTS=--manage-gids)$'
+            replace: '#\1'
+            backup: yes
+          notify: restart nfs-kernel-server
+
+        # === REINICIAR SERVICIOS ===
+        - name: "Reiniciar service nfs-config"
+          systemd:
+            name: nfs-config
+            state: restarted
+          ignore_errors: yes
+
+        - name: "Reiniciar service nfs-kernel-server"
+          systemd:
+            name: nfs-kernel-server
+            state: restarted
+
+        # === HABILITAR SERVICIO ===
+        - name: "Habilitar nfs-kernel-server"
+          systemd:
+            name: nfs-kernel-server
+            enabled: yes
+            state: started
+
+        # === VALIDAR CONFIGURACIÓN ===
+        - name: "Aplicar exportaciones NFS"
+          command: exportfs -v -a
+          register: nfs_exports_add
+          changed_when: false
+
+        - name: "Validar exportaciones NFS"
+          command: exportfs
+          register: nfs_exports
+          changed_when: false
+
+        - name: "Verificar información de RPC"
+          command: rpcinfo -p
+          register: rpc_info
+          changed_when: false
+
+        - name: "Verificar estado del servicio NFS"
+          command: systemctl status nfs-kernel-server
+          register: nfs_status
+          changed_when: false
+
+        # === VERIFICAR PUERTOS ===
+        - name: "Verificar puerto NFS 2049"
+          command: ss -ultpn | grep 2049
+          register: nfs_port_check
+          changed_when: false
+          ignore_errors: yes
+
+        - name: "Verificar puerto mountd 33333"
+          command: ss -ultpn | grep 33333
+          register: mountd_port_check
+          changed_when: false
+          ignore_errors: yes
+
+        - name: "Verificar puerto portmapper 111"
+          command: ss -ultpn | grep 111
+          register: portmapper_check
+          changed_when: false
+          ignore_errors: yes
+
+        # === MOSTRAR RESUMEN MASTER ===
+        - name: "Mostrar resumen de configuración NFS SERVER"
+          debug:
+            msg:
+              - "=== CONFIGURACIÓN NFS SERVER COMPLETADA ==="
+              - "Tipo de servidor: MASTER"
+              - "Directorio exportado: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+              - "Puerto mountd: 33333"
+              - "Puerto NFS: 2049"
+              - "Puerto portmapper: 111"
+              - "Configuración: ro,no_root_squash,sync,no_subtree_check"
+              - "Servidores deployment autorizados: {{ deployment_servers | default(['i.p.deployment.server1']) }}"
+              - "Comandos ejecutados:"
+              - "  • apt install nfs-kernel-server"
+              - "  • exportfs -v -a"
+              - "  • systemctl enable nfs-kernel-server"
+              - "  • systemctl restart nfs-kernel-server"
+              - "Verificación:"
+              - "  • exportfs = {{ nfs_exports.stdout_lines | default(['No exports']) }}"
+              - "  • NFS puerto 2049: {{ 'OK' if nfs_port_check.rc == 0 else 'ERROR' }}"
+              - "  • mountd puerto 33333: {{ 'OK' if mountd_port_check.rc == 0 else 'ERROR' }}"
+              - "  • portmapper puerto 111: {{ 'OK' if portmapper_check.rc == 0 else 'ERROR' }}"
+      when: server_type == 'master'
+
+    # =====================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA CLIENTE NFS DEPLOY
+    # =====================================================================
+    - name: "Configuración NFS CLIENTE (solo en Deploy)"
+      block:
+        # === INSTALAR NFS CLIENT ===
+        - name: "Instalar nfs-common"
+          package:
+            name: nfs-common
+            state: present
+            update_cache: yes
+
+        # === PROBAR MONTAJE MANUAL ===
+        - name: "Probar montaje manual NFS"
+          mount:
+            path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+            src: "{{ master_server.ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+            fstype: nfs
+            opts: defaults
+            state: mounted
+          register: nfs_mount_test
+
+        - name: "Verificar montaje NFS"
+          command: df -h /home/admin/wwwroot/dolibarr_documents/sellyoursaas
+          register: nfs_mount_check
+          when: nfs_mount_test is succeeded
+
+        - name: "Desmontar para configurar fstab"
+          mount:
+            path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+            state: unmounted
+          when: nfs_mount_test is succeeded
+
+        # === CONFIGURAR /etc/fstab ===
+        - name: "Verificar si la entrada NFS ya existe en /etc/fstab"
+          lineinfile:
+            path: /etc/fstab
+            regexp: '.*sellyoursaas.*nfs.*'
+            state: absent
+          check_mode: yes
+          register: fstab_check
+
+        - name: "Agregar entrada NFS a /etc/fstab"
+          lineinfile:
+            path: /etc/fstab
+            line: "{{ master_server.ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0"
+            backup: yes
+            insertafter: EOF
+          when: fstab_check is not changed
+
+        # === PROBAR MONTAJE AUTOMÁTICO ===
+        - name: "Probar montaje automático con mount -a"
+          command: mount -a
+          register: mount_auto_result
+
+        - name: "Verificar que el montaje automático funciona"
+          mount:
+            path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+            src: "{{ master_server.ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+            fstype: nfs
+            opts: defaults
+            state: mounted
+
+        # === VERIFICACIONES FINALES ===
+        - name: "Verificar montaje NFS activo"
+          command: mount | grep sellyoursaas
+          register: nfs_active_mount
+          changed_when: false
+
+        - name: "Verificar conectividad con servidor master"
+          command: "netstat -n | grep {{ master_server.ip | default('i.p.server.master') }}"
+          register: nfs_connectivity
+          changed_when: false
+          ignore_errors: yes
+
+        - name: "Verificar acceso de lectura al montaje NFS"
+          command: ls -la /home/admin/wwwroot/dolibarr_documents/sellyoursaas
+          register: nfs_read_test
+          changed_when: false
+
+        - name: "Verificar estado del servicio NFS"
+          command: systemctl status nfs-common
+          register: nfs_client_status
+          changed_when: false
+
+        # === MOSTRAR RESUMEN DEPLOY ===
+        - name: "Mostrar resumen de configuración NFS Cliente"
+          debug:
+            msg:
+              - "=== CONFIGURACIÓN NFS CLIENTE COMPLETADA ==="
+              - "Tipo de servidor: DEPLOY"
+              - "Servidor Master: {{ master_server.ip | default('i.p.server.master') }}"
+              - "Directorio remoto: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+              - "Punto de montaje: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+              - "Tipo de montaje: NFSv4 (por defecto)"
+              - "Comandos ejecutados:"
+              - "  • apt install nfs-common"
+              - "  • mount -t nfs {{ master_server.ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+              - "  • umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+              - "  • echo '{{ master_server.ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0' >> /etc/fstab"
+              - "  • mount -a"
+              - "Verificaciones:"
+              - "  • Montaje activo: {{ 'OK' if nfs_active_mount.rc == 0 else 'ERROR' }}"
+              - "  • Conectividad: {{ 'OK' if nfs_connectivity.rc == 0 else 'Verificar firewall' }}"
+              - "  • Acceso de lectura: {{ 'OK' if nfs_read_test.rc == 0 else 'ERROR' }}"
+              - "  • Servicio nfs-common: {{ 'OK' if nfs_client_status.rc == 0 else 'ERROR' }}"
+              - "Nota: Asegúrate de que el firewall esté abierto entre cliente y servidor NFS"
+      when: server_type == 'deploy'
+
+  handlers:
+    - name: restart nfs-kernel-server
+      systemd:
+        name: nfs-kernel-server
+        state: restarted
+      when: server_type == 'master'

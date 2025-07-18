@@ -8,6 +8,10 @@
   gather_facts: yes
 
   tasks:
+    - name: "Verificar disponibilidad de la clave SSH de myunixlogin"
+      debug:
+        msg: "Clave SSH de {{ system_users.unix_admin }} está {{ 'disponible' if unix_admin_ssh_key is defined else 'NO disponible' }}"
+      
     - name: "Crear directorio .ssh en /etc/skel"
       file:
         path: /etc/skel/.ssh
@@ -24,6 +28,18 @@
         owner: root
         group: root
 
+    # Recuperar clave SSH del usuario myunixlogin si no está definida
+    - name: "Recuperar clave SSH de myunixlogin si no está definida"
+      shell: cat /home/{{ system_users.unix_admin }}/.ssh/id_rsa.pub
+      register: myunixlogin_ssh_key_local
+      changed_when: false
+      when: unix_admin_ssh_key is not defined
+      ignore_errors: yes
+    
+    - name: "Establecer variable local para la clave SSH"
+      set_fact:
+        local_unix_admin_ssh_key: "{{ unix_admin_ssh_key | default(myunixlogin_ssh_key_local.stdout | default('')) }}"
+
     - name: "Agregar claves SSH de administradores"
       blockinfile:
         path: /etc/skel/.ssh/authorized_keys_support
@@ -32,6 +48,8 @@
           {{ ssh_keys.admin_public }}
           # Clave SSH del usuario root
           {{ ssh_keys.root_public }}
+          # Clave SSH del usuario myunixlogin
+          {{ local_unix_admin_ssh_key }}
         marker: "# {mark} ANSIBLE MANAGED SSH KEYS"
         create: yes
 

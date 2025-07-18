@@ -307,11 +307,8 @@
       timezone:
         name: "{{ system_timezone | default('UTC') }}"
 
-    - name: "Desactivar actualizaciones automáticas"
-      package:
-        name: unattended-upgrades
-        state: absent
-      ignore_errors: yes
+    # La desactivación de actualizaciones automáticas se ha movido al archivo:
+    # /erick/playbooks/shared/disable_auto_updates.yml para evitar duplicidades
 
     # === MOSTRAR RESUMEN COMPLETO ===
     - name: "Mostrar resumen de instalación"

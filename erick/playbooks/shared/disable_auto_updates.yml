@@ -1,0 +1,70 @@
+# =============================================================================
+# Desactivación de actualizaciones automáticas
+# =============================================================================
+---
+- name: "Desactivar actualizaciones automáticas de Ubuntu"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DESACTIVAR PAQUETE DE ACTUALIZACIONES AUTOMÁTICAS ===
+    - name: "Desactivar paquete unattended-upgrades (usando apt remove exactamente como en la documentación)"
+      command: apt remove -y unattended-upgrades
+      register: apt_remove_result
+      changed_when: "'0 to remove' not in apt_remove_result.stdout"
+      failed_when: false
+
+    - name: "Verificar que el paquete unattended-upgrades esté desinstalado"
+      command: dpkg -l unattended-upgrades
+      register: check_unattended
+      changed_when: false
+      failed_when: false
+
+    - name: "Mostrar estado de desactivación"
+      debug:
+        msg: "{{ 'unattended-upgrades DESINSTALADO' if check_unattended.rc != 0 else 'ERROR: unattended-upgrades sigue instalado' }}"
+
+    # === EVITAR REINSTALACIÓN AUTOMÁTICA ===
+    - name: "Marcar paquete para que no se instale automáticamente"
+      command: apt-mark hold unattended-upgrades
+      register: apt_mark_result
+      changed_when: "'unattended-upgrades set on hold' in apt_mark_result.stdout"
+      failed_when: false
+
+    # === DESACTIVACIÓN DE SERVICIOS RELACIONADOS ===
+    - name: "Desactivar servicio apt-daily.timer (si existe)"
+      systemd:
+        name: apt-daily.timer
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    - name: "Desactivar servicio apt-daily-upgrade.timer (si existe)"
+      systemd:
+        name: apt-daily-upgrade.timer
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+
+    # === ELIMINAR ARCHIVOS DE CONFIGURACIÓN RESIDUALES ===
+    - name: "Eliminar archivos de configuración de unattended-upgrades en /etc/apt/apt.conf.d/"
+      file:
+        path: "/etc/apt/apt.conf.d/{{ item }}"
+        state: absent
+      loop:
+        - "20auto-upgrades"
+        - "50unattended-upgrades"
+      ignore_errors: yes
+
+    # === VERIFICACIÓN ===
+    - name: "Verificar que no haya servicios de actualización automática activos"
+      shell: |
+        systemctl list-unit-files | grep -E 'apt-daily|unattended'
+      register: check_services
+      changed_when: false
+      failed_when: false
+
+    - name: "Mostrar resultado de verificación"
+      debug:
+        var: check_services.stdout_lines

@@ -8,7 +8,7 @@
   gather_facts: yes
 
   tasks:
-    - name: "Cambiar shell por defecto a bash"
+    - name: "Cambiar shell por defecto a bash (caso general)"
       file:
         src: /bin/bash
         dest: /usr/bin/sh
@@ -23,3 +23,28 @@
     - name: "Mostrar shell configurado"
       debug:
         msg: "Shell por defecto configurado: {{ shell_check.stdout }}"
+        
+    # Para Ubuntu 18.04 también se necesita crear el enlace en /bin/sh
+    - name: "Verificar si es Ubuntu 18.04"
+      shell: grep -q "Ubuntu 18.04" /etc/os-release || grep -q "Ubuntu.*bionic" /etc/os-release || echo "no"
+      register: ubuntu_1804_check
+      changed_when: false
+      
+    - name: "Cambiar shell por defecto a bash para Ubuntu 18.04"
+      file:
+        src: /bin/bash
+        dest: /bin/sh
+        state: link
+        force: yes
+      when: ubuntu_1804_check.rc == 0
+      
+    - name: "Verificar enlace simbólico en /bin/sh (para Ubuntu 18.04)"
+      command: ls -la /bin/sh
+      register: shell_bin_check
+      changed_when: false
+      when: ubuntu_1804_check.rc == 0
+      
+    - name: "Mostrar shell configurado para Ubuntu 18.04"
+      debug:
+        msg: "Shell por defecto configurado en /bin/sh: {{ shell_bin_check.stdout }}"
+      when: ubuntu_1804_check.rc == 0

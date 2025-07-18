@@ -29,10 +29,8 @@
         state: link
         force: yes
 
-    - name: "Desactivar actualizaciones automáticas"
-      package:
-        name: unattended-upgrades
-        state: absent
+    # Nota: La desactivación de actualizaciones automáticas se ha movido al archivo
+    # /erick/playbooks/shared/disable_auto_updates.yml para evitar duplicidades
 
     # === USUARIOS Y GRUPOS ===
     - name: "Crear grupo admin"
@@ -64,106 +62,24 @@
       user:
         name: "{{ system_users.app_admin }}"
         password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
+        
+    - name: "Verificar que el UID del usuario admin sea >= 1000"
+      shell: "grep '^{{ system_users.app_admin }}:' /etc/passwd | cut -d ':' -f 3"
+      register: admin_uid
+      changed_when: false
 
-    # === DIRECTORIOS DE TRABAJO ===
-    - name: "Crear directorios de logs"
-      file:
-        path: "{{ directories.logs }}"
-        state: directory
-        owner: root
-        group: admin
-        mode: '0770'
+    - name: "Comprobar UID del usuario admin"
+      assert:
+        that: "admin_uid.stdout | int >= 1000"
+        fail_msg: "El UID del usuario admin es menor que 1000: {{ admin_uid.stdout }}"
+        success_msg: "El UID del usuario admin es correcto: {{ admin_uid.stdout }}"
 
-    - name: "Crear directorios de wwwroot"
-      file:
-        path: "{{ directories.wwwroot }}"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: admin
-        mode: '0755'
-
-    - name: "Crear directorios de backup"
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: admin
-        mode: '0755'
-      loop:
-        - "{{ directories.backup }}"
-        - "{{ directories.backup }}/conf"
-        - "{{ directories.backup }}/mysql"
-
-    - name: "Crear puntos de montaje para almacenamiento"
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: admin
-        mode: '0755'
-      loop:
-        - /mnt/diskhome
-        - /mnt/diskbackup
-
-    - name: "Crear directorio de backup en almacenamiento"
-      file:
-        path: /mnt/diskhome/backup
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: admin
-        mode: '0755'
-
-    - name: "Crear enlace simbólico para backup"
-      file:
-        src: /mnt/diskhome/backup
-        dest: /mnt/diskbackup/backup
-        state: link
-        force: yes
-
-    - name: "Crear directorio de documentos de Dolibarr"
-      file:
-        path: "{{ directories.documents }}/sellyoursaas/spam"
-        state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: admin
-        mode: '0755'
-        recurse: yes
-
-    # === INSTALACIÓN DE PAQUETES ===
-    - name: "Actualizar cache de paquetes"
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-
-    - name: "Instalar paquetes básicos"
-      package:
-        name: "{{ packages_basic }}"
-        state: present
-
-    - name: "Instalar paquetes de base de datos"
-      package:
-        name: "{{ packages_database }}"
-        state: present
-
-    - name: "Instalar paquetes web"
-      package:
-        name: "{{ packages_web }}"
-        state: present
-
-    - name: "Instalar paquetes PHP"
-      package:
-        name: "{{ packages_php }}"
-        state: present
-
-    - name: "Instalar paquetes de seguridad"
-      package:
-        name: "{{ packages_security }}"
-        state: present
-
-    - name: "Instalar paquetes adicionales"
-      package:
-        name: "{{ packages_additional }}"
-        state: present
+    # Nota: Las tareas de creación de directorios se han movido al archivo
+    # /erick/playbooks/shared/working_directories.yml para evitar duplicidades
+    
+    # Nota: La instalación de paquetes se ha movido al archivo
+    # /erick/playbooks/shared/common_packages.yml para proporcionar una
+    # instalación completa según la versión de Ubuntu
 
     # === CONFIGURACIÓN SSH ===
     - name: "Configurar permisos SSH config"
@@ -283,27 +199,9 @@
       become_user: "{{ system_users.app_admin }}"
 
     # === CONFIGURACIÓN DE ARCHIVOS DE CONFIGURACIÓN ===
-    - name: "Crear archivo sellyoursaas.conf"
-      file:
-        path: /etc/sellyoursaas.conf
-        state: touch
-        owner: root
-        group: admin
-        mode: '0640'
-
-    - name: "Crear archivo sellyoursaas-public.conf"
-      file:
-        path: /etc/sellyoursaas-public.conf
-        state: touch
-        owner: root
-        group: admin
-        mode: '0644'
-
-    - name: "Crear directorio sellyoursaas.d"
-      file:
-        path: /etc/sellyoursaas.d
-        state: directory
-        mode: '0755'
+    # Nota: La creación de archivos de configuración sellyoursaas.conf y sellyoursaas-public.conf
+    # se ha movido al archivo playbooks/shared/sellyoursaas_config.yml para 
+    # proporcionar configuraciones específicas para cada tipo de servidor.
 
     # === CONFIGURACIÓN FAIL2BAN ===
     - name: "Crear configuración básica de Fail2ban"

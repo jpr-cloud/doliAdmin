@@ -1,22 +1,27 @@
 # =============================================================================
-# Configuración SSH y Sudo para Master
+# Configuración SSH y Sudo - Shared (Master y Deploy)
 # =============================================================================
 ---
-- name: "Configuración SSH y Sudo en Master"
-  hosts: master
+- name: "Configuración SSH y Sudo"
+  hosts: "{{ target_hosts | default('all') }}"
   become: true
   gather_facts: yes
 
   tasks:
-    # Primero asegurar que el grupo existe
+    # === DETECCIÓN DE TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === CREACIÓN DE USUARIOS Y GRUPOS (SOLO MASTER) ===
     - name: "Crear grupo admin"
       group:
         name: "admin"
         state: present
       register: group_result
       failed_when: group_result is failed and "already exists" not in group_result.msg
+      when: server_type == 'master'
 
-    # Luego crear el usuario admin con ese grupo
     - name: "Crear usuario admin"
       user:
         name: "admin"
@@ -26,8 +31,9 @@
         state: present
       register: user_result
       failed_when: user_result is failed and "already exists" not in user_result.msg
+      when: server_type == 'master'
 
-    # Crear el usuario del sistema después
+    # Crear el usuario del sistema en ambos servidores
     - name: "Crear usuario de sistema"
       user:
         name: "{{ system_users.unix_admin }}"
@@ -42,9 +48,11 @@
       user:
         name: "admin"
         password: "{{ system_users.admin_password | password_hash('sha512') }}"
-      when: user_result is changed
+      when: server_type == 'master' and user_result is changed
 
-    - name: "Crear directorios de trabajo principales"
+    # === CREACIÓN DE DIRECTORIOS ===
+    # Directorios específicos del Master
+    - name: "Crear directorios específicos para Master"
       file:
         path: "{{ item }}"
         state: directory
@@ -60,8 +68,30 @@
         - "{{ directories.diskbackup }}"
         - "{{ directories.diskhome }}/backup"
         - "{{ directories.documents }}/sellyoursaas/spam"
+      when: server_type == 'master'
 
-    - name: "Crear enlaces simbólicos de directorios"
+    # Directorios específicos del Deploy
+    - name: "Crear directorios específicos para Deploy"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+        mode: '0755'
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.diskhome }}"
+        - "{{ directories.diskbackup }}"
+        - "{{ directories.jail }}"
+        - "{{ directories.diskhome }}/home"  # Donde van las instancias
+        - "{{ directories.archives_test }}"
+        - "{{ directories.archives_paid }}"
+        - "{{ directories.documents }}/sellyoursaas/spam"
+        - "{{ directories.templates }}"
+      when: server_type == 'deploy'
+
+    # Enlaces simbólicos específicos de Master
+    - name: "Crear enlaces simbólicos para Master"
       file:
         src: "{{ item.src }}"
         dest: "{{ item.dest }}"
@@ -70,33 +100,32 @@
         group: admin
       loop:
         - { src: "{{ directories.diskhome }}/backup", dest: "{{ directories.diskbackup }}/backup" }
+      when: server_type == 'master'
 
-    - name: "Crear directorio de logs"
+    # Enlaces simbólicos específicos de Deploy
+    - name: "Crear enlaces simbólicos para Deploy"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        owner: "{{ system_users.app_admin }}"
+        group: www-data
+      loop:
+        - { src: "{{ directories.diskhome }}/home", dest: "{{ directories.jail }}/home" }
+        - { src: "{{ directories.diskbackup }}/backup", dest: "{{ directories.jail }}/backup" }
+        - { src: "{{ directories.archives_test }}", dest: "{{ directories.jail }}/archives-test" }
+        - { src: "{{ directories.archives_paid }}", dest: "{{ directories.jail }}/archives-paid" }
+      when: server_type == 'deploy'
+
+    # Directorio de logs específico de Master
+    - name: "Crear directorio de logs para Master"
       file:
         path: "{{ directories.logs }}"
         state: directory
         owner: root
         group: '{{ system_users.admin }}'
         mode: '0770'
-
-    - name: "Crear directorios de almacenamiento"
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: "{{ system_users.admin }}"
-        group: '{{ system_users.admin }}'
-        mode: '0755'
-      loop:
-        - /mnt/diskbackup
-        - /mnt/diskhome
-        - /mnt/diskhome/backup
-
-    - name: "Crear enlace simbólico para backup"
-      file:
-        src: /mnt/diskhome/backup
-        dest: /mnt/diskbackup/backup
-        state: link
-        force: yes
+      when: server_type == 'master'
 
     # === CONFIGURACIÓN SSH COMPLETA SEGÚN DOCUMENTACIÓN SELLYOURSAAS ===
     
@@ -121,8 +150,8 @@
         group: root
         mode: '0755'
 
-    # 3. Crear archivo sellyoursaas.conf
-    - name: "Crear archivo /etc/ssh/sshd_config.d/sellyoursaas.conf"
+    # 3. Crear archivo sellyoursaas.conf (diferente para Master y Deploy)
+    - name: "Crear archivo /etc/ssh/sshd_config.d/sellyoursaas.conf para Master"
       copy:
         content: |
           # SellYourSaas SSH Configuration
@@ -158,6 +187,45 @@
         group: root
         mode: '0600'
         backup: yes
+      when: server_type == 'master'
+
+    - name: "Crear archivo /etc/ssh/sshd_config.d/sellyoursaas.conf para Deploy"
+      copy:
+        content: |
+          # SellYourSaas SSH Configuration
+          Port {{ ssh_config.port | default('22') }}
+          Protocol 2
+          PermitRootLogin no
+          PubkeyAuthentication yes
+          AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys_support
+          PermitEmptyPasswords no
+          X11Forwarding no
+          AllowTcpForwarding yes
+          ClientAliveInterval 60
+          ClientAliveCountMax 3
+          PasswordAuthentication no
+          ChallengeResponseAuthentication no
+          UsePAM yes
+          PrintMotd no
+          PrintLastLog yes
+          TCPKeepAlive yes
+          StrictModes yes
+          IgnoreRhosts yes
+          RhostsRSAAuthentication no
+          HostbasedAuthentication no
+          PermitUserEnvironment no
+          Compression delayed
+          UseDNS no
+          MaxStartups 10:30:100
+          MaxAuthTries 6
+          MaxSessions 10
+          LoginGraceTime 600
+        dest: /etc/ssh/sshd_config.d/sellyoursaas.conf
+        owner: root
+        group: root
+        mode: '0600'
+        backup: yes
+      when: server_type == 'deploy'
 
     # 4. Agregar bloque Match User osu* al final de sshd_config
     - name: "Agregar bloque Match User osu* al final de /etc/ssh/sshd_config"
@@ -187,7 +255,7 @@
           # SellYourSaas Users Configuration
           AllowUsers {{ system_users.unix_admin | default('mylastnamefirstname') }}
           AllowUsers {{ system_users.app_admin }}
-          AllowUsers root
+          {{ 'AllowUsers root' if server_type == 'master' else '' }}
         dest: /etc/ssh/sshd_config.d/sellyoursaas-users.conf
         owner: root
         group: root
@@ -215,14 +283,14 @@
     - name: "Configurar contraseña segura para root"
       user:
         name: root
-        password: "{{ system_users.root_password | password_hash('sha512') }}"
-      when: system_users.root_password is defined
+        password: "{{ system_users.passwords.root | password_hash('sha512') }}"
+      when: system_users.passwords.root is defined
 
     - name: "Configurar contraseña segura para admin"
       user:
         name: "{{ system_users.app_admin }}"
-        password: "{{ system_users.admin_password | password_hash('sha512') }}"
-      when: system_users.admin_password is defined
+        password: "{{ system_users.passwords.admin | password_hash('sha512') }}"
+      when: system_users.passwords.admin is defined
 
     # 9. Generar claves SSH para usuarios
     - name: "Generar clave SSH para root"
@@ -347,10 +415,26 @@
         group: root
         mode: '0755'
 
+    # 15. Recargar servicio SSH
+    - name: "Recargar servicio SSH"
+      service:
+        name: sshd
+        state: reloaded
+      notify: restart sshd
+
+    # 16. Modificar /etc/login.defs (solo para master)
+    - name: "Modificar /etc/login.defs"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: '^UMASK'
+        line: 'UMASK           022'
+      when: server_type == 'master'
+
+    # 17. Mostrar información
     - name: "Mostrar información de configuración SSH"
       debug:
         msg:
-          - "SSH Setup completado exitosamente"
+          - "SSH Setup completado exitosamente para {{ server_type }}"
           - "Archivos configurados:"
           - "- /etc/ssh/sshd_config (permisos 600)"
           - "- /etc/ssh/sshd_config.d/sellyoursaas.conf"
@@ -359,12 +443,6 @@
           - "- Sudoers configurado con set_home y use_pty"
           - "- Claves SSH generadas para usuarios"
           - "- Script de prueba: /usr/local/bin/test_ssh_config.sh"
-
-    - name: "Modificar /etc/login.defs"
-      lineinfile:
-        path: /etc/login.defs
-        regexp: '^UMASK'
-        line: 'UMASK           022'
 
   handlers:
     - name: restart sshd

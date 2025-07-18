@@ -36,7 +36,9 @@
 # CONFIGURACIÓN ESPECÍFICA MASTER
 # =============================================================================
 - name: "FASE 2.1: Configuración SSH y usuarios en Master"
-  import_playbook: playbooks/master/ssh_sudo.yml
+  import_playbook: playbooks/shared/ssh_sudo.yml
+  vars:
+    target_hosts: master
 
 - name: "FASE 2.1.1: Configuración claves SSH SellYourSaas"
   import_playbook: playbooks/shared/ssh_keys_sellyoursaas.yml
@@ -44,7 +46,9 @@
     target_hosts: master
 
 - name: "FASE 2.2: Configuración NFS Server en Master"
-  import_playbook: playbooks/master/nfs_master.yml
+  import_playbook: playbooks/shared/nfs_share.yml
+  vars:
+    target_hosts: master
 
 - name: "FASE 2.3: Configuración PHP en Master"
   import_playbook: playbooks/shared/php_config.yml
@@ -153,7 +157,12 @@
   vars:
     target_hosts: master
 
-- name: "FASE 2.12: Configuración alias básicos en Master"
+- name: "FASE 2.12: Desactivación de actualizaciones automáticas en Master"
+  import_playbook: playbooks/shared/disable_auto_updates.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.13: Configuración alias básicos en Master"
   import_playbook: playbooks/master/master_alias.yml
 
 - name: "FASE 2.13: Configuración AFICK en Master"

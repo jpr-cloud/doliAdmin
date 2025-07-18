@@ -1,47 +1,65 @@
 # =============================================================================
-# Configuración usuario personal sysadmin (mylastnamefirstname)
+# Configuración usuario personal sysadmin (jpyrsaadmin)
 # =============================================================================
 ---
 - name: "Configuración usuario personal sysadmin"
-  hosts: "{{ target_hosts | default('all') }}"
+  hosts: "{{ target_hosts | default('master,deploy') }}"
   become: true
   gather_facts: yes
+
+  vars:
+    sysadmin_username: "{{ personal_sysadmin_user | default('jpyrsaadmin') }}"
 
   tasks:
     - name: "Crear usuario personal sysadmin"
       user:
-        name: "{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+        name: "{{ sysadmin_username }}"
         shell: /usr/bin/bash
         create_home: yes
         state: present
+      register: user_created
 
     - name: "Crear archivo sudoers para usuario personal"
       copy:
         content: |
-          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) ALL
+          {{ sysadmin_username }} ALL=(ALL) ALL
           # Permite cambiar a admin o osu* sin password
-          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) /usr/bin/su - admin
-          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) /usr/bin/su - osu*
-        dest: "/etc/sudoers.d/{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+          {{ sysadmin_username }} ALL=(ALL) /usr/bin/su - admin
+          {{ sysadmin_username }} ALL=(ALL) /usr/bin/su - osu*
+        dest: "/etc/sudoers.d/{{ sysadmin_username }}"
         mode: '0440'
         owner: root
         group: root
         validate: 'visudo -cf %s'
 
+    - name: "Aplicar permisos correctos al archivo sudoers"
+      file:
+        path: "/etc/sudoers.d/{{ sysadmin_username }}"
+        mode: '0440'
+        owner: root
+        group: root
+      register: sudoers_perms
+
     - name: "Generar claves SSH para usuario personal"
       user:
-        name: "{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+        name: "{{ sysadmin_username }}"
         generate_ssh_key: yes
         ssh_key_bits: 2048
         ssh_key_file: .ssh/id_rsa
+      when: user_created.changed
 
     - name: "Mostrar clave pública del usuario personal"
-      command: "cat /home/{{ personal_sysadmin_user | default('mylastnamefirstname') }}/.ssh/id_rsa.pub"
+      command: "cat /home/{{ sysadmin_username }}/.ssh/id_rsa.pub"
       register: personal_pubkey
       changed_when: false
 
     - name: "Información del usuario personal creado"
       debug:
         msg:
-          - "Usuario {{ personal_sysadmin_user | default('mylastnamefirstname') }} creado exitosamente"
+          - "Usuario {{ sysadmin_username }} creado exitosamente"
           - "Clave pública: {{ personal_pubkey.stdout }}"
+          - "Para copiar la clave SSH a una máquina remota, use:"
+          - "ssh-copy-id {{ sysadmin_username }}@x.y.z.a"
+          - "Para probar la conexión, use:"
+          - "ssh -v {{ sysadmin_username }}@x.y.z.a"
+          - "sudo -s"

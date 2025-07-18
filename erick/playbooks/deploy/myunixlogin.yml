@@ -52,6 +52,16 @@
         ssh_key_bits: 2048
         ssh_key_file: .ssh/id_rsa
 
+    - name: "Leer contenido de la clave pública"
+      shell: cat /home/{{ system_users.unix_admin }}/.ssh/id_rsa.pub
+      register: myunixlogin_ssh_key
+      changed_when: false
+      
+    - name: "Guardar clave pública en variable global"
+      set_fact:
+        unix_admin_ssh_key: "{{ myunixlogin_ssh_key.stdout }}"
+        cacheable: yes
+
     - name: "Verificar que el usuario fue creado correctamente"
       command: id {{ system_users.unix_admin }}
       register: user_check

@@ -1,6 +1,13 @@
 # =============================================================================
 # INSTALACIÓN  SERVIDOR DEPLOYMENT
-# =============================================================================
+# ================================================================- name: "FASE 2.14: Configuración AppArmor"
+  import_playbook: playbooks/deploy/apparmor_deploy.yml
+
+- name: "FASE 2.15: Configuración Jailkit (Opcional)"
+  import_playbook: playbooks/deploy/jailkit_deploy.yml
+
+- name: "FASE 2.16: Permitir generación de PNG desde PDF"
+  import_playbook: playbooks/deploy/allow_png_gen.yml=====
 # Este playbook configura el o los servidores de deployment
 # PREREQUISITO: El servidor master debe estar ya instalado y funcionando
 # =============================================================================
@@ -47,8 +54,9 @@
 # CONFIGURACIÓN ESPECÍFICA DEPLOYMENT
 # =============================================================================
 - name: "FASE 2.1: Configuración SSH y usuarios en Deploy"
-  hosts: '{{host}}'
-  import_playbook: playbooks/deploy/ssh_sudo.yml
+  import_playbook: playbooks/shared/ssh_sudo.yml
+  vars:
+    target_hosts: deploy
 
 - name: "FASE 2.1.1: Configuración claves SSH SellYourSaas"
   import_playbook: playbooks/shared/ssh_keys_sellyoursaas.yml
@@ -59,14 +67,16 @@
   import_playbook: playbooks/deploy/myunixlogin.yml
 
 - name: "FASE 2.3: Configuración NFS Cliente en Deploy"
-  import_playbook: playbooks/deploy/nfs_deploy.yml
+  import_playbook: playbooks/shared/nfs_share.yml
+  vars:
+    target_hosts: deploy
 
 - name: "FASE 2.3: Configuración PHP en Deploy"
   import_playbook: playbooks/shared/php_config.yml
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.4: Configuración UID/GID para instancias"
+- name: "FASE 2.4: Max size increase UID - Configuración UID/GID para instancias"
   import_playbook: playbooks/shared/uid_gid_config.yml
   vars:
     target_hosts: deploy
@@ -161,16 +171,22 @@
   vars:
     target_hosts: deploy
 
+- name: "FASE 2.12: Desactivación de actualizaciones automáticas"
+  import_playbook: playbooks/shared/disable_auto_updates.yml
+  vars:
+    target_hosts: deploy
+
 - name: "FASE 2.12: Configuración plantilla /etc/skel"
   import_playbook: playbooks/deploy/skel_template.yml
 
 - name: "FASE 2.13: Configuración alias del sistema"
   import_playbook: playbooks/deploy/deploy_alias.yml
 
-- name: "FASE 2.14: Configuración UID máximo"
-  import_playbook: playbooks/deploy/increase_uid.yml
+# NOTA: La configuración de UID máximo ahora se maneja en FASE 2.4 con playbooks/shared/uid_gid_config.yml
+# - name: "FASE 2.14: Configuración UID máximo"
+#  import_playbook: playbooks/deploy/increase_uid.yml
 
-- name: "FASE 2.15: Configuración AppArmor"
+- name: "FASE 2.14: Configuración AppArmor"
   import_playbook: playbooks/deploy/apparmor_deploy.yml
 
 - name: "FASE 2.16: Configuración Jailkit (Opcional)"

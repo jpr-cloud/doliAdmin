@@ -68,4 +68,27 @@
         - { name: 'vm.vfs_cache_pressure', value: '50' }
         - { name: 'vm.dirty_ratio', value: '15' }
         - { name: 'vm.dirty_background_ratio', value: '5' }
+        # - { name: 'fs.inotify.max_user_watches', value: '1024000' }  # Opcional según instrucciones
+      when: disk_configuration.optimize_memory | default(true)
+      
+    - name: "Verificar el valor actual de vm.vfs_cache_pressure"
+      command: cat /proc/sys/vm/vfs_cache_pressure
+      register: vfs_cache_pressure_result
+      changed_when: false
+      when: disk_configuration.optimize_memory | default(true)
+      
+    - name: "Mostrar valor actual de vm.vfs_cache_pressure"
+      debug:
+        msg: "vm.vfs_cache_pressure = {{ vfs_cache_pressure_result.stdout }}"
+      when: disk_configuration.optimize_memory | default(true)
+      
+    - name: "Ejecutar slabtop para obtener información sobre inodes/dentries"
+      shell: slabtop -o | head -20
+      register: slabtop_result
+      changed_when: false
+      when: disk_configuration.optimize_memory | default(true)
+      
+    - name: "Mostrar información de slabtop"
+      debug:
+        msg: "{{ slabtop_result.stdout_lines }}"
       when: disk_configuration.optimize_memory | default(true)
