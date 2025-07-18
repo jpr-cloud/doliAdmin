@@ -110,14 +110,25 @@
   import_playbook: playbooks/master/apache_master.yml
   vars:
     target: master
+
+- name: "FASE 2.12: Configuración AFICK en Master"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    target: master
+
+# TODO: Configuración de Fail2ban
+- name: "[Installation of fail2ban]: Configuración Fail2ban en Master"
+  import_playbook: playbooks/master/fail2ban_master.yml
+  vars:
+    target: master
+
 # TODO: Configuración de Mariadb
 - name: "FASE 2.5: Configuración MariaDB en Master"
   import_playbook: playbooks/master/mariadb_master.yml
   vars:
     target: master
 
-- name: "FASE 2.6: Configuración Fail2ban en Master"
-  import_playbook: playbooks/master/fail2ban_master.yml
+
 
 - name: "FASE 2.7: Configuración SSL/Certbot en Master"
   import_playbook: playbooks/master/certbot_master.yml
@@ -139,10 +150,7 @@
 - name: "FASE 2.11: Configuración alias básicos en Master"
   import_playbook: playbooks/master/master_alias.yml
 
-- name: "FASE 2.12: Configuración AFICK en Master"
-  import_playbook: playbooks/shared/afick.yml
-  vars:
-    target: master
+
 
 - name: "FASE 2.13: Configuración Watchdog en Master"
   import_playbook: playbooks/master/watchdog_master.yml
