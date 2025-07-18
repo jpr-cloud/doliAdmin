@@ -1,0 +1,53 @@
+# =============================================================================
+# Instalación y Configuración Dolibarr en Master
+# =============================================================================
+---
+- name: "Instalación Dolibarr Master"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+#    - name: "Descargar Dolibarr {{ dolibarr.version }}"
+#      get_url:
+#        url: "{{ dolibarr.download_url }}"
+#        dest: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
+#        mode: '0644'
+#
+#    - name: "Extraer Dolibarr"
+#      unarchive:
+#        src: "/tmp/dolibarr-{{ dolibarr.version }}.tgz"
+#        dest: "{{ directories.wwwroot }}"
+#        remote_src: yes
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+#        mode: '0755'
+#
+#    - name: "Crear enlace simbólico a la versión actual"
+#      file:
+#        src: "{{ directories.wwwroot }}/dolibarr-{{ dolibarr.version }}"
+#        dest: "{{ directories.wwwroot }}/dolibarr"
+#        state: link
+#        owner: "{{ system_users.app_admin }}"
+#        group: www-data
+    - name: Configurando Git safe directory para Dolibarr
+      ansible.builtin.command:
+        cmd: git config --global --add safe.directory /home/{{ system_users.admin }}/wwwroot/dolibarr
+    - name: Clonando Dolibarr desde {{ dolibarr.repo }} en la rama {{ dolibarr.branch }}
+      ansible.builtin.git:
+        repo: "{{ dolibarr.repo }}"
+        #dest: /home/{{ system_users.admin }}/wwwroot/dolibarr
+        dest: /home/{{ system_users.admin }}/wwwroot
+        version: "{{ dolibarr.branch }}"
+        force: yes
+        update: yes
+      become_user: "{{ system_users.admin }}"
+
+## Clonando SellYourSaas
+    - name: Clonando SellYourSaas desde {{ sellyoursaas.git_repo }} en la rama {{ sellyoursaas.git_branch }}
+      ansible.builtin.git:
+        repo: "{{ sellyoursaas.repo }}"
+        dest: /home/{{ system_users.admin }}/wwwroot
+        force: yes
+        update: yes
+      become_user: "{{ system_users.admin }}"

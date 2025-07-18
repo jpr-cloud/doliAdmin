@@ -1,0 +1,79 @@
+# =============================================================================
+# Configuración SSH y Sudo para Master
+# =============================================================================
+---
+- name: 'Configuración SSH en {{ target }}'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: Moviendo archivos de información de login
+      set_fact:
+        fecha_archivo: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+    - name: Respaldar archivos de información de login /etc/update-motd.d/20-runabove
+      ansible.builtin.command:
+        cmd: mv {{ item }} {{ item }}_{{ fecha_archivo }}
+      loop:
+        - /etc/update-motd.d/00-header
+        - /etc/update-motd.d/20-runabove
+        - /etc/update-motd.d/50-landscape-sysinfo
+        - /etc/update-motd.d/50-motd-news
+        - /etc/update-motd.d/9*-update*-available
+        - /etc/update-motd.d/92-unattended-upgrades
+
+
+
+#   - name: 'Configurar permisos SSH config'
+#     file:
+#       path: /etc/ssh/sshd_config
+#       mode: '0644'
+#
+#   - name: 'Creando directorio sshd_config.d'
+#     file:
+#       path: /etc/ssh/sshd_config.d
+#       state: directory
+#       mode: '0755'
+#
+#   - name: 'Configurar SSH para SellYourSaas'
+#     blockinfile:
+#       path: /etc/ssh/sshd_config.d/sellyoursaas.conf
+#       create: yes
+#       block: |
+#         # Configuration for SellYourSaas SSH
+#         Port 22
+#         Protocol 2
+#         PermitRootLogin yes
+#         PubkeyAuthentication yes
+#         AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys_support
+#         PermitEmptyPasswords no
+#         X11Forwarding no
+#         AllowTcpForwarding yes
+#         ClientAliveInterval 60
+#         ClientAliveCountMax 3
+#         AllowUsers root {{ system_users.app_admin }} {{ system_users.unix_admin }}
+#       marker: '# {mark} ANSIBLE MANAGED SSH CONFIG'
+#     notify: restart sshd
+#
+#   - name: 'Configurar sudoers para usuario de sistema {{ system_users.unix_admin }}'
+#     blockinfile:
+#       path: '/etc/sudoers.d/{{ system_users.unix_admin }}'
+#       create: yes
+#       mode: '0440'
+#       block: |
+#         # User privileges for {{ system_users.unix_admin }}
+#         {{ system_users.unix_admin }} ALL=(ALL:ALL) ALL
+#       marker: '# {mark} ANSIBLE MANAGED SUDOERS'
+#       validate: 'visudo -cf %s'
+#
+#   - name: 'Modificar /etc/login.defs'
+#     lineinfile:
+#       path: /etc/login.defs
+#       regexp: '^UMASK'
+#       line: 'UMASK           022'
+#
+# handlers:
+#   - name: restart sshd
+#     systemd:
+#       name: sshd
+#       state: restarted

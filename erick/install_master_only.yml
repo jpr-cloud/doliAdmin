@@ -22,8 +22,6 @@
       vars:
         hostname_main: "{{ target }}"
 
-# Unix admin account {admin}
-
 # =============================================================================
 # CONFIGURACIÓN BÁSICA MASTER
 # =============================================================================
@@ -33,13 +31,74 @@
     target: master
 
 # =============================================================================
-# CONFIGURACIÓN ESPECÍFICA MASTER
+# 'Unix personal sysadmin account': Creación del usuario Unix Personal Sysadmin 
 # =============================================================================
-- name: "FASE 2.1: Configuración SSH y usuarios en Master"
-  import_playbook: playbooks/master/ssh_sudo.yml
+- name: "Creación del usuario Unix Personal Sysadmin"
+  import_playbook: playbooks/shared/UnixPersonalSysadminAccount.yml
+  vars:
+    target: master
+
+# =============================================================================
+# 'Unix admin account':Creación del usuario admin y directorios de trabajo
+# =============================================================================
+- name: "Creación del usuario admin y directorios de trabajo"
+  import_playbook: playbooks/shared/UnixAdminAccount.yml
+  vars:
+    target: master
+
+# =============================================================================
+# 'SSH setup' Solo para deployment, no para master
+# =============================================================================
+- name: "SSH setup"
+  import_playbook: playbooks/master/ssh.yml
+  vars:
+    target: master
+
+
+# =============================================================================
+# Creation of working directories
+# =============================================================================
+- name: Creación de los directorios de trabajo
+  import_playbook: playbooks/shared/working_directories.yml
+  vars:
+    target: master
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+# =============================================================================
+- name: "[Getting files of Dolibarr and SellYourSaas application]: Instalación Dolibarr en Master"
+  import_playbook: playbooks/shared/getDolibarr.yml
+  vars:
+    target: master
+# =============================================================================
+# Creation of /.conf with credentials
+# =============================================================================
+
+- name: "FASE 2.1: Creación de /conf con credenciales"
+  import_playbook: playbooks/shared/confWithCredentials.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Installing the nfs share
+# =============================================================================
 
 - name: "FASE 2.2: Configuración NFS Server en Master"
   import_playbook: playbooks/master/nfs_master.yml
+  vars:
+    target: master
+    nfs:
+    internal_dest_ip: "{{ deployment_server.ip_internal | default(deployment_server.ip) }}"
+
+# =============================================================================
+# [FALTA] Deploy the public key of master admin on deployment admin account
+# =============================================================================
+
+# =============================================================================
+# Installation of packages
+#.  Apache web server configuration
+# =============================================================================
 
 - name: "FASE 2.3: Configuración PHP en Master"
   import_playbook: playbooks/shared/php_config.yml
@@ -65,10 +124,7 @@
   vars:
     target: master
 
-- name: "FASE 2.8: Instalación Dolibarr en Master"
-  import_playbook: playbooks/master/dolibarr_master.yml
-  vars:
-    target: master
+
 
 - name: "FASE 2.9: Configuración Logrotate en Master"
   import_playbook: playbooks/shared/logrotate.yml

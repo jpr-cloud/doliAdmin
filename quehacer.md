@@ -21,19 +21,17 @@ Titulo | task | master | deploy
 Mount disk | mount |  ⛔ | ✅
 Optimize the memory for a lot of inode and dentry | slabtop  | ⛔ | ✅
 
-## Login setup
+## Elementos no manuales
 
-### Default shell
-
-Titulo | task | master | deploy
--|-|-|-
-Modify the default shell to use bash | default_shell | ⛔ | ✅
-Optimize the memory for a lot of inode and dentry | slabtop | ⛔ | ✅
-Min for password | min_for_password | ✴️ | ✅
-Unix personal sysadmin account _{jpyrsaadmin}_ | sysadmin_account | ✴️ | ✅
-Unix admin account _{admin}_ | sysadmin_account | ✅ | ✅
-myunixlogin | myunixlogin | ⛔ | ✅
-SSH setup | ssh_setup | ✴️ | ✅
+Titulo | task | master | deploy | Revisado | notas
+-|-|-|-|- |-
+Modify the default shell to use bash | default_shell | ⛔ | ✅ |-|-
+Optimize the memory for a lot of inode and dentry | slabtop | ⛔ | ✅|-|-
+Min for password | min_for_password | ✴️ | ✅|-|-
+Unix personal sysadmin account _{jpyrsaadmin}_ | sysadmin_account | ✴️ | ✅|-|-
+Unix admin account _{admin}_ | sysadmin_account | ✅ | ✅  |-|-
+myunixlogin | myunixlogin | ⛔ | ✅|-|-
+SSH setup | ssh_setup | ✴️ | ✅|-|-
 
 Nota: **root, admin and mylastnamefirstname deben tener su propia llave**
 

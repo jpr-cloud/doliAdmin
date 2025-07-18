@@ -3,28 +3,28 @@
 # =============================================================================
 ---
 - name: "Configuración NFS Server"
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Crear directorio de documentos de Dolibarr"
-      file:
-        path: "{{ directories.documents }}/sellyoursaas/spam"
-        state: directory
-        owner: "{{ system_users.admin }}"
-        group: admin
-        mode: '0755'
-        recurse: yes
+#    - name: "Crear directorio de documentos de Dolibarr"
+#      file:
+#        path: "{{ directories.documents }}/sellyoursaas/spam"
+#        state: directory
+#        owner: "{{ system_users.admin }}"
+#        group: admin
+#        mode: '0755'
+#        recurse: yes
+#
+#    - name: "Establecer permisos para dolibarr_documents"
+#      file:
+#        path: "{{ directories.documents }}"
+#        owner: "{{ system_users.admin }}"
+#        group: admin
+#        recurse: yes
 
-    - name: "Establecer permisos para dolibarr_documents"
-      file:
-        path: "{{ directories.documents }}"
-        owner: "{{ system_users.admin }}"
-        group: admin
-        recurse: yes
-
-    - name: "Instalar nfs-kernel-server"
+    - name: "Instalando nfs-kernel-server"
       package:
         name: nfs-kernel-server
         state: present
@@ -35,7 +35,7 @@
         create: yes
         block: |
           # NFS exports for SellYourSaas
-          {{ nfs.export_path }} {{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)
+          {{ nfs.export_path }} {{ internal_dest_ip }}(rw,sync,no_subtree_check,no_root_squash)
         marker: "# {mark} ANSIBLE MANAGED NFS EXPORTS"
       notify: restart nfs-kernel-server
 

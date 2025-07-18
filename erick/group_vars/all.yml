@@ -1,19 +1,23 @@
 # =============================================================================
 # Variables de Configuración para SellYourSaas
 # =============================================================================
-
+domain: 'j-cloud.com.mx'
+subdomain: 'a1'
 # === CONFIGURACIÓN DE SERVIDORES ===
 master_server:
   hostname: 'master'
   ip: '195.201.216.33'
-  domain: 'j-cloud.com.mx'
-  fqdn: 'master.j-cloud.com.mx'
+  domain: '{{ domain }}'  # Dominio para el servidor Master
+  fqdn: 'master.{{ domain}}'
 
 deployment_server:
   hostname: 'deploy'
   ip: '91.99.229.240'
-  domain: 'j-cloud.com.mx'  # Dominio para instancias
-  fqdn: 'deploy.j-cloud.com.mx'
+  ip_internal: '91.99.229.240'
+  domain: '{{ domain }}'  # Dominio para instancias
+  fqdn: 'deploy.{{ domain }}'
+
+
 
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
@@ -21,6 +25,9 @@ system_users:
   unix_admin_password: 'p123p123'
   admin: 'admin'
   admin_password: 'admin'
+  UnixPersonalSysadmin: 'jpyrsaadmin'
+  UnixPersonalSysadmin_password: 'p123p123'
+
   
   app_admin: 'admin'
   passwords:
@@ -48,7 +55,8 @@ dolibarr:
   repo: 'https://github.com/Dolibarr/dolibarr.git'
   
 sellyoursaas:
-  git_repo: 'https://github.com/dolicloud/sellyoursaas'
+  #git_repo: 'https://github.com/dolicloud/sellyoursaas'
+  repo: 'https://github.com/dolicloud/sellyoursaas'
   branch: 'master'
   cookie_key: '{{ ansible_hostname }}-{{ ansible_date_time.epoch }}'  # Se genera automáticamente
 
@@ -60,6 +68,12 @@ database:
   user: 'sellyoursaas'
   password: 'p123p123'
   root_password: 'p123p123'
+database_deploySaas:
+  host: '192.168.178.2'
+  port: 3306
+  schema: 'deploySaas'  # Base de datos principal como en main.md
+  user: 'sellyoursaas'
+  password: 'p123p123'
 
 php:
   version: '8.3'
@@ -74,11 +88,11 @@ maxscale:
 # === DIRECTORIOS ===
 directories:
   # Directorios principales
-  wwwroot: '/home/{{ system_users.app_admin }}/wwwroot'
-  logs: '/home/{{ system_users.app_admin }}/logs'
-  backup: '/home/{{ system_users.app_admin }}/backup'
-  documents: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents'
-  
+  wwwroot: '/home/{{ system_users.admin }}/wwwroot'
+  logs: '/home/{{ system_users.admin }}/logs'
+  backup: '/home/{{ system_users.admin }}/backup'
+  documents: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents'
+
   # Directorios de montaje (como en main.md)
   diskhome: '/mnt/diskhome'
   diskbackup: '/mnt/diskbackup'
@@ -90,12 +104,13 @@ directories:
   archives_paid: '/mnt/diskbackup/archives-paid'
   
   # Directorios de SellYourSaas
-  scripts: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_sellyoursaas/scripts'
-  templates: '/home/{{ system_users.app_admin }}/templates'
+  scripts: '/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas/scripts'
+  templates: '/home/{{ system_users.admin }}/templates'
   backups: '/mnt/diskbackup/backup'
+  sellyoursaas_d: '/etc/sellyoursaas.d'
   
   # NFS mount point
-  nfs_mount: '/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas'
+  nfs_mount: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents/sellyoursaas'
 
 # === NFS ===
 nfs:
@@ -120,7 +135,7 @@ disk_configuration:
 email:
   smtp_server: 'localhost'
   smtp_port: 25
-  from: 'soporte@{{ master_server.domain }}'
+  from: 'soporte@jpyrsa.mx'
 
 notifications:
   email: 'admin@{{ master_server.domain }}'

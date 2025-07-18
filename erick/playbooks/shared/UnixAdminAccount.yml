@@ -1,0 +1,65 @@
+# =============================================================================
+# Configuración SSH y Sudo para Master
+# =============================================================================
+---
+- name: 'Configuración SSH y Sudo en Master'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+ # Unix admin account
+    ## Primero asegurar que el grupo existe
+    - name: 'Creando el grupo {{ system_users.admin }}'
+      group:
+        name: '{{ system_users.admin }}'
+        state: present
+      register: group_result
+      failed_when: group_result is failed and 'already exists' not in group_result.msg
+
+    # Luego Creando el usuario admin con ese grupo
+    - name: 'Creando el usuario admin'
+      user:
+        name: '{{ system_users.admin }}'
+        group: '{{ system_users.admin }}'
+        shell: /usr/bin/bash
+        create_home: yes
+        state: present
+      register: user_result
+      failed_when: user_result is failed and 'already exists' not in user_result.msg
+
+    # Establecer la contraseña para admin
+    - name: 'Establecer contraseña para {{ system_users.admin }}'
+      user:
+        name: '{{ system_users.admin }}'
+        password: "{{ system_users.admin_password | password_hash('sha512') }}"
+      when: user_result is changed
+
+    - name: 'Creando directorios de trabajo de {{ directories.logs }}'
+      # Estos directorios son necesarios para el funcionamiento de Dolibarr y SellYourSaas
+      # En la documentación se mencionan como 'Unix admin account'
+      file:
+        path: '{{ directories.logs }}'
+        state: directory
+        owner: root
+        group: '{{ system_users.admin }}'
+        mode: '0770'
+
+
+    - name: 'Creando directorios de trabajo de {{ system_users.admin }}'
+      # Estos directorios son necesarios para el funcionamiento de Dolibarr y SellYourSaas
+      # En la documentación se mencionan como 'Unix admin account'
+      file:
+        path: '{{ item }}'
+        state: directory
+        owner: '{{ system_users.admin }}'
+        group: '{{ system_users.admin }}'
+        recurse: yes
+      loop:
+        - '{{ directories.diskbackup }}' # ok
+        - '{{ directories.backup }}/backup/conf' # ok
+        - '{{ directories.backup }}/backup/mysql' # ok
+        - '{{ directories.wwwroot }}' # ok
+
+## Unix admin account fin
+
