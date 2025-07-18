@@ -89,41 +89,254 @@
         - { src: "{{ directories.archives_test }}", dest: "{{ directories.jail }}/archives-test" }
         - { src: "{{ directories.archives_paid }}", dest: "{{ directories.jail }}/archives-paid" }
 
-    - name: "Configurar SSH (cambiar puerto)"
-      lineinfile:
+    # === CONFIGURACIÓN SSH COMPLETA SEGÚN DOCUMENTACIÓN SELLYOURSAAS ===
+    
+    # 1. Configurar permisos en /etc/ssh/sshd_config (solo root lectura/escritura)
+    - name: "Configurar permisos en /etc/ssh/sshd_config"
+      file:
         path: /etc/ssh/sshd_config
-        regexp: '^#?Port'
-        line: "Port {{ ssh_config.port }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: "Ejecutar chmod go-rw /etc/ssh/sshd_config"
+      command: chmod go-rw /etc/ssh/sshd_config
+      changed_when: false
+
+    # 2. Crear directorio sshd_config.d
+    - name: "Crear directorio /etc/ssh/sshd_config.d"
+      file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # 3. Crear archivo sellyoursaas.conf
+    - name: "Crear archivo /etc/ssh/sshd_config.d/sellyoursaas.conf"
+      copy:
+        content: |
+          # SellYourSaas SSH Configuration
+          Port {{ ssh_config.port | default('22') }}
+          Protocol 2
+          PermitRootLogin no
+          PubkeyAuthentication yes
+          AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys_support
+          PermitEmptyPasswords no
+          X11Forwarding no
+          AllowTcpForwarding yes
+          ClientAliveInterval 60
+          ClientAliveCountMax 3
+          PasswordAuthentication no
+          ChallengeResponseAuthentication no
+          UsePAM yes
+          PrintMotd no
+          PrintLastLog yes
+          TCPKeepAlive yes
+          StrictModes yes
+          IgnoreRhosts yes
+          RhostsRSAAuthentication no
+          HostbasedAuthentication no
+          PermitUserEnvironment no
+          Compression delayed
+          UseDNS no
+          MaxStartups 10:30:100
+          MaxAuthTries 6
+          MaxSessions 10
+          LoginGraceTime 600
+        dest: /etc/ssh/sshd_config.d/sellyoursaas.conf
+        owner: root
+        group: root
+        mode: '0600'
+        backup: yes
+
+    # 4. Agregar bloque Match User osu* al final de sshd_config
+    - name: "Agregar bloque Match User osu* al final de /etc/ssh/sshd_config"
+      blockinfile:
+        path: /etc/ssh/sshd_config
+        insertafter: EOF
+        block: |
+          # BEGIN Block for SellYourSaas
+          # Warning Match rule works only in sshd_config, not into include files
+          # You can test a Match User rule with: sshd -T -C user=aaa | grep param
+          #Match User osu*
+          #  ChrootDirectory "/home/jail/home/"
+          #  ForceCommand /usr/bin/secureBash
+          #Match User osu*
+          #  ChrootDirectory %h
+          Match User osu*
+            PasswordAuthentication=yes
+          # END Block for SellYourSaas
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS MATCH USER"
         backup: yes
       notify: restart sshd
 
-    - name: "Deshabilitar autenticación por password para root"
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?PermitRootLogin'
-        line: 'PermitRootLogin no'
-      notify: restart sshd
+    # 5. Crear archivo sellyoursaas-users.conf
+    - name: "Crear archivo /etc/ssh/sshd_config.d/sellyoursaas-users.conf"
+      copy:
+        content: |
+          # SellYourSaas Users Configuration
+          AllowUsers {{ system_users.unix_admin | default('mylastnamefirstname') }}
+          AllowUsers {{ system_users.app_admin }}
+          AllowUsers root
+        dest: /etc/ssh/sshd_config.d/sellyoursaas-users.conf
+        owner: root
+        group: root
+        mode: '0600'
+        backup: yes
 
-    - name: "Deshabilitar autenticación por password"
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?PasswordAuthentication'
-        line: 'PasswordAuthentication no'
-      notify: restart sshd
+    # 6. Configurar permisos archivos SSH
+    - name: "Ejecutar chmod o-rw en archivos sellyoursaas SSH"
+      command: chmod o-rw /etc/ssh/sshd_config.d/sellyoursaas*.conf
+      changed_when: false
 
-    - name: "Habilitar solo autenticación por clave pública"
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?PubkeyAuthentication'
-        line: 'PubkeyAuthentication yes'
-      notify: restart sshd
+    # 7. Configurar sudoers con set_home y use_pty
+    - name: "Configurar sudoers con set_home y use_pty"
+      blockinfile:
+        path: /etc/sudoers
+        insertafter: "^Defaults"
+        block: |
+          Defaults set_home
+          Defaults use_pty
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS SUDOERS"
+        validate: 'visudo -cf %s'
+        backup: yes
 
-    - name: "Configurar usuarios permitidos SSH"
-      lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?AllowUsers'
-        line: "AllowUsers {{ system_users.app_admin }}"
-      notify: restart sshd
+    # 8. Configurar contraseñas seguras
+    - name: "Configurar contraseña segura para root"
+      user:
+        name: root
+        password: "{{ system_users.root_password | password_hash('sha512') }}"
+      when: system_users.root_password is defined
+
+    - name: "Configurar contraseña segura para admin"
+      user:
+        name: "{{ system_users.app_admin }}"
+        password: "{{ system_users.admin_password | password_hash('sha512') }}"
+      when: system_users.admin_password is defined
+
+    # 9. Generar claves SSH para usuarios
+    - name: "Generar clave SSH para root"
+      openssh_keypair:
+        path: /root/.ssh/id_rsa
+        type: rsa
+        size: 2048
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: "Generar clave SSH para admin"
+      openssh_keypair:
+        path: "/home/{{ system_users.app_admin }}/.ssh/id_rsa"
+        type: rsa
+        size: 2048
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0600'
+
+    - name: "Generar clave SSH para usuario unix admin"
+      openssh_keypair:
+        path: "/home/{{ system_users.unix_admin | default('mylastnamefirstname') }}/.ssh/id_rsa"
+        type: rsa
+        size: 2048
+        owner: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        group: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        mode: '0600'
+      when: system_users.unix_admin is defined
+
+    # 10. Configurar directorios .ssh
+    - name: "Configurar directorio .ssh para root"
+      file:
+        path: /root/.ssh
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: "Configurar directorio .ssh para admin"
+      file:
+        path: "/home/{{ system_users.app_admin }}/.ssh"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0700'
+
+    - name: "Configurar directorio .ssh para usuario unix admin"
+      file:
+        path: "/home/{{ system_users.unix_admin | default('mylastnamefirstname') }}/.ssh"
+        state: directory
+        owner: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        group: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        mode: '0700'
+      when: system_users.unix_admin is defined
+
+    # 11. Configurar permisos authorized_keys
+    - name: "Configurar permisos authorized_keys para root"
+      file:
+        path: /root/.ssh/authorized_keys
+        state: touch
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: "Configurar permisos authorized_keys para admin"
+      file:
+        path: "/home/{{ system_users.app_admin }}/.ssh/authorized_keys"
+        state: touch
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0600'
+
+    - name: "Configurar permisos authorized_keys para usuario unix admin"
+      file:
+        path: "/home/{{ system_users.unix_admin | default('mylastnamefirstname') }}/.ssh/authorized_keys"
+        state: touch
+        owner: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        group: "{{ system_users.unix_admin | default('mylastnamefirstname') }}"
+        mode: '0600'
+      when: system_users.unix_admin is defined
+
+    # 12. Verificar configuración SSH
+    - name: "Verificar configuración SSH"
+      command: sshd -T
+      register: sshd_test
+      changed_when: false
+      failed_when: sshd_test.rc != 0
+
+    # 13. Crear script de prueba SSH
+    - name: "Crear script de prueba SSH"
+      copy:
+        content: |
+          #!/bin/bash
+          # Script de prueba SSH para SellYourSaas
+          echo "=== Prueba de configuración SSH ==="
+          echo "Para probar la configuración SSH, usa:"
+          echo "sshd -T -C user=logintotest -C host=clienthost -C addr=clientaddr"
+          echo ""
+          echo "Para probar Match User osu*:"
+          echo "sshd -T -C user=osu1 | grep -E '(passwordauth|chrootdir|forcecommand)'"
+          echo ""
+          echo "Usuarios permitidos:"
+          grep "AllowUsers" /etc/ssh/sshd_config.d/sellyoursaas-users.conf
+          echo ""
+          echo "Configuración SSH verificada exitosamente"
+        dest: /usr/local/bin/test_ssh_config.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Mostrar información de configuración SSH"
+      debug:
+        msg:
+          - "SSH Setup completado exitosamente"
+          - "Archivos configurados:"
+          - "- /etc/ssh/sshd_config (permisos 600)"
+          - "- /etc/ssh/sshd_config.d/sellyoursaas.conf"
+          - "- /etc/ssh/sshd_config.d/sellyoursaas-users.conf"
+          - "- Match User osu* agregado a sshd_config"
+          - "- Sudoers configurado con set_home y use_pty"
+          - "- Claves SSH generadas para usuarios"
+          - "- Script de prueba: /usr/local/bin/test_ssh_config.sh"
 
   handlers:
     - name: restart sshd

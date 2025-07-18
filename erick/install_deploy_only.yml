@@ -50,6 +50,11 @@
   hosts: '{{host}}'
   import_playbook: playbooks/deploy/ssh_sudo.yml
 
+- name: "FASE 2.1.1: Configuración claves SSH SellYourSaas"
+  import_playbook: playbooks/shared/ssh_keys_sellyoursaas.yml
+  vars:
+    target_hosts: deploy
+
 - name: "FASE 2.2: Configuración usuario myunixlogin"
   import_playbook: playbooks/deploy/myunixlogin.yml
 
@@ -61,8 +66,33 @@
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.4: Configuración Apache en Deploy"
+- name: "FASE 2.4: Configuración UID/GID para instancias"
+  import_playbook: playbooks/shared/uid_gid_config.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.4.1: Configuración Apache General en Deploy"
+  import_playbook: playbooks/shared/apache_config.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.4.2: Configuración Apache Deploy específico"
+  import_playbook: playbooks/deploy/apache_deploy_specific.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.4.3: Configuración Apache Deploy (Legacy)"
   import_playbook: playbooks/deploy/apache_deploy.yml
+
+- name: "FASE 2.4.4: Configuración del Filesystem de Logs (Opcional)"
+  import_playbook: playbooks/shared/logs_filesystem.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.4.5: Configuración Timeout MariaDB"
+  import_playbook: playbooks/shared/mariadb_timeout.yml
+  vars:
+    target_hosts: deploy
 
 - name: "FASE 2.5: Configuración Fail2ban en Deploy"
   import_playbook: playbooks/deploy/fail2ban_deploy.yml
@@ -72,8 +102,48 @@
   vars:
     ansible_limit: deploy
 
-- name: "FASE 2.7: Configuración Dolibarr Templates en Deploy"
+- name: "FASE 2.7: Obtención de archivos Dolibarr y SellYourSaas"
+  import_playbook: playbooks/shared/dolibarr_sources.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.1: Instalación Unix Watchdog (Opcional)"
+  import_playbook: playbooks/shared/unix_watchdog.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.2: Test SpamAssassin Configuration"
+  import_playbook: playbooks/shared/test_spamassassin.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.3: Test and Setup of ClamAV"
+  import_playbook: playbooks/shared/test_clamav.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.4: Installation of Afick"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.5: Setup of CPUlimit (Optional)"
+  import_playbook: playbooks/shared/cpulimit.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.6: Configuración Dolibarr Templates en Deploy"
   import_playbook: playbooks/deploy/dolibarr_deploy.yml
+
+- name: "FASE 2.7.7: Creación de Directorios de Trabajo"
+  import_playbook: playbooks/shared/working_directories.yml
+  vars:
+    target_hosts: deploy
+
+- name: "FASE 2.7.8: Configuración de archivos SellYourSaas"
+  import_playbook: playbooks/shared/sellyoursaas_config.yml
+  vars:
+    target_hosts: deploy
 
 - name: "FASE 2.8: Configuración Logrotate en Deploy"
   import_playbook: playbooks/shared/logrotate.yml
@@ -87,7 +157,9 @@
   import_playbook: playbooks/shared/default_shell.yml
 
 - name: "FASE 2.11: Eliminación archivos información login"
-  import_playbook: playbooks/deploy/del_info_login.yml
+  import_playbook: playbooks/shared/del_info_login.yml
+  vars:
+    target_hosts: deploy
 
 - name: "FASE 2.12: Configuración plantilla /etc/skel"
   import_playbook: playbooks/deploy/skel_template.yml

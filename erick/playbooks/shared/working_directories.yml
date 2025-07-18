@@ -1,0 +1,166 @@
+# =============================================================================
+# Creación de Directorios de Trabajo - Shared (Master y Deploy)
+# Creation of working directories
+# =============================================================================
+---
+- name: "Creación de directorios de trabajo"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === CREAR DIRECTORIO DE BACKUP ===
+    - name: "Verificar si existe disco dedicado para backup"
+      stat:
+        path: /mnt/diskbackup
+      register: diskbackup_mount
+
+    - name: "Crear directorio backup en disco dedicado"
+      file:
+        path: /mnt/diskbackup/backup
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+      when: diskbackup_mount.stat.exists and diskbackup_mount.stat.isdir
+
+    - name: "Crear directorio backup en diskhome si no hay disco dedicado"
+      file:
+        path: /mnt/diskhome/backup
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+      when: not (diskbackup_mount.stat.exists and diskbackup_mount.stat.isdir)
+
+    - name: "Crear enlace simbólico para backup (si no hay disco dedicado)"
+      file:
+        src: /mnt/diskhome/backup
+        dest: /mnt/diskbackup
+        state: link
+        force: yes
+      when: not (diskbackup_mount.stat.exists and diskbackup_mount.stat.isdir)
+
+    # === DIRECTORIOS COMUNES PARA MASTER Y DEPLOY ===
+    - name: "Crear directorios comunes"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.documents }}"
+        - "{{ directories.logs }}"
+        - "{{ directories.templates }}"
+        - "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas/spam"
+
+    # === DIRECTORIOS ESPECÍFICOS PARA DEPLOYMENT ===
+    - name: "Crear directorios específicos para deployment"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ 'root' if item == '/home/jail' else system_users.app_admin }}"
+        group: "{{ 'root' if item == '/home/jail' else system_users.app_admin }}"
+        mode: '0755'
+      loop:
+        - /home/jail
+        - /mnt/diskhome/home
+        - /mnt/diskbackup/archives-test
+        - /mnt/diskbackup/archives-paid
+      when: server_type == 'deploy'
+
+    # === CONFIGURAR PERMISOS ESPECÍFICOS ===
+    - name: "Configurar permisos para directorios de archivo"
+      file:
+        path: "{{ item }}"
+        owner: "{{ system_users.app_admin }}"
+        group: root
+        mode: '0755'
+      loop:
+        - /mnt/diskbackup/backup
+        - /mnt/diskbackup/archives-test
+        - /mnt/diskbackup/archives-paid
+      when: server_type == 'deploy'
+
+    # === CREAR ENLACES SIMBÓLICOS PARA JAIL ===
+    - name: "Crear enlaces simbólicos para jail"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: yes
+      loop:
+        - { src: "/mnt/diskhome/home", dest: "/home/jail/home" }
+        - { src: "/mnt/diskbackup/backup", dest: "/home/jail/backup" }
+        - { src: "/mnt/diskbackup/archives-test", dest: "/home/jail/archives-test" }
+        - { src: "/mnt/diskbackup/archives-paid", dest: "/home/jail/archives-paid" }
+      when: server_type == 'deploy'
+
+    # === CREAR DIRECTORIO SPAM ===
+    - name: "Crear directorio spam con permisos específicos"
+      file:
+        path: "/home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas/spam"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+
+    # === VERIFICACIÓN Y RESUMEN ===
+    - name: "Verificar que los directorios se crearon correctamente"
+      stat:
+        path: "{{ item }}"
+      register: directory_check
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.documents }}"
+        - "{{ directories.logs }}"
+        - "{{ directories.templates }}"
+        - "/mnt/diskbackup/backup"
+      failed_when: not directory_check.results[0].stat.exists
+
+    - name: "Verificar directorios específicos de deployment"
+      stat:
+        path: "{{ item }}"
+      register: deploy_directory_check
+      loop:
+        - /home/jail
+        - /mnt/diskhome/home
+        - /mnt/diskbackup/archives-test
+        - /mnt/diskbackup/archives-paid
+      when: server_type == 'deploy'
+      failed_when: 
+        - server_type == 'deploy'
+        - not deploy_directory_check.results[0].stat.exists
+
+    - name: "Mostrar resumen de directorios creados"
+      debug:
+        msg:
+          - "=== DIRECTORIOS DE TRABAJO CREADOS ==="
+          - "Tipo de servidor: {{ server_type }}"
+          - "Directorios comunes:"
+          - "  • {{ directories.wwwroot }}"
+          - "  • {{ directories.documents }}"
+          - "  • {{ directories.logs }}"
+          - "  • {{ directories.templates }}"
+          - "  • /mnt/diskbackup/backup"
+          - "  • /home/{{ system_users.app_admin }}/wwwroot/dolibarr_documents/sellyoursaas/spam"
+          - "{{ 'Directorios específicos de deployment:' if server_type == 'deploy' else '' }}"
+          - "{{ '  • /home/jail' if server_type == 'deploy' else '' }}"
+          - "{{ '  • /mnt/diskhome/home' if server_type == 'deploy' else '' }}"
+          - "{{ '  • /mnt/diskbackup/archives-test' if server_type == 'deploy' else '' }}"
+          - "{{ '  • /mnt/diskbackup/archives-paid' if server_type == 'deploy' else '' }}"
+          - "{{ 'Enlaces simbólicos para jail creados' if server_type == 'deploy' else '' }}"
+          
+    - name: "Mostrar información sobre discos"
+      debug:
+        msg:
+          - "=== INFORMACIÓN DE DISCOS ==="
+          - "Disco dedicado para backup: {{ 'Sí' if diskbackup_mount.stat.exists and diskbackup_mount.stat.isdir else 'No (usando /mnt/diskhome/backup)' }}"
+          - "Backup se almacena en: {{ '/mnt/diskbackup/backup' if diskbackup_mount.stat.exists and diskbackup_mount.stat.isdir else '/mnt/diskhome/backup' }}"

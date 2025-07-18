@@ -1,0 +1,92 @@
+##########################
+# Admin Dolibarr Master
+##########################
+<VirtualHost *:80>
+        #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
+        #php_admin_value mail.force_extra_parameters "-f postmaster@{{ master_server.domain }}"
+        #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f webmaster@{{ master_server.domain }}"
+        php_admin_value open_basedir /tmp/:/home/admin/wwwroot/:/usr/share/GeoIP:/home/jail/home
+
+        ServerName      admin.{{ master_server.domain }}
+        DocumentRoot /home/admin/wwwroot/dolibarr/htdocs/
+        ErrorLog     /home/admin/logs/mycompany_admin_error_log
+        CustomLog    /home/admin/logs/mycompany_admin_access_log combined
+
+        UseCanonicalName Off
+
+        # Not sure this can help
+        TimeOut 20
+
+        KeepAlive On
+        KeepAliveTimeout 5
+        MaxKeepAliveRequests 100
+
+        <Directory /home/admin/wwwroot/dolibarr/htdocs/>
+        AuthType Basic
+        AuthName "Authenticate to backoffice"
+        AuthUserFile /etc/apache2/.htpasswd
+        Require valid-user
+        # Or if you prefer restrict to some ip, you can add lines "Require ip x.y.z.w" into a .conf file into this directory:
+        IncludeOptional /etc/sellyoursaas.d/*-allowed-ip.conf
+        </Directory>
+
+        #leaving /public, /api and /dav accessible to everyone
+        <Directory /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/public/>
+        AuthType None
+        Require all granted
+        Satisfy any
+        </Directory>
+        <Directory /home/admin/wwwroot/dolibarr/htdocs/public/>
+        AuthType None
+        Require all granted
+        Satisfy any
+        </Directory>
+        <Directory /home/admin/wwwroot/dolibarr/htdocs/api/>
+        AuthType None
+        Require all granted
+        Satisfy any
+        </Directory>
+        <Directory /home/admin/wwwroot/dolibarr/htdocs/dav/>
+        AuthType None
+        Require all granted
+        Satisfy any
+        </Directory>
+        <Files ~ "(document\.php|viewimage\.php|\.js\.php|\.js|\.css\.php|\.css|\.gif|\.png|\.svg|\.woff2|favicon\.ico)$">
+        AuthType None
+        Require all granted
+        Satisfy any
+        </Files>
+
+        <Directory /home/admin/wwwroot>
+        AllowOverride FileInfo Limit
+        Options +FollowSymLinks
+        Order allow,deny
+        Deny from env=bad_bots
+        Allow from all
+        Require all granted
+        </Directory>
+
+        # Add alias git on sellyoursaas git dir
+        Alias "/git" "/home/admin/wwwroot/dolibarr_documents/sellyoursaas/git"
+        <Directory /home/admin/wwwroot/dolibarr_documents/sellyoursaas/git>
+        AllowOverride FileInfo Limit
+        Options +Indexes
+        Order allow,deny
+        Require ip {{ master_server.admin_ip | default('127.0.0.1') }}
+        </Directory>
+
+        ExpiresActive On
+        ExpiresByType image/x-icon A2592000
+        ExpiresByType image/gif A2592000
+        ExpiresByType image/png A2592000
+        ExpiresByType image/jpeg A2592000
+        ExpiresByType text/css A2592000
+        ExpiresByType text/javascript A2592000
+        ExpiresByType application/x-javascript A2592000
+        ExpiresByType application/javascript A2592000
+
+RewriteEngine On
+RewriteCond %{SERVER_NAME} =admin.{{ master_server.domain }}
+RewriteCond %{REQUEST_URI} !fileserver\.php
+RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>

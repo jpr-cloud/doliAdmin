@@ -1,98 +1,122 @@
 # =============================================================================
-# Configuración NFS Cliente en Deploy
+# Configuración NFS Cliente en Deploy - SellYourSaas
+# Installing the nfs share - On the Deployment Servers
 # =============================================================================
 ---
-- name: "Configuración NFS Cliente Deploy"
+- name: "Configuración NFS Cliente para SellYourSaas"
   hosts: deploy
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Crear punto de montaje para backups NFS"
+    # === CREAR DIRECTORIO DE DOCUMENTOS SELLYOURSAAS ===
+    - name: "Crear directorio de documentos de Dolibarr/SellYourSaas"
       file:
-        path: "{{ directories.nfs_mount }}"
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
         state: directory
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
+        owner: admin
+        group: admin
         mode: '0755'
+        recurse: yes
 
-    - name: "Configurar montaje NFS en /etc/fstab"
-      blockinfile:
-        path: /etc/fstab
-        marker: "# {mark} ANSIBLE MANAGED NFS MOUNT"
-        block: |
-          # Montaje NFS para backups desde master
-          {{ master_server.ip }}:{{ directories.backups }} {{ directories.nfs_mount }} nfs defaults,auto,rw,user 0 0
+    # === INSTALAR NFS CLIENT ===
+    - name: "Instalar nfs-common"
+      package:
+        name: nfs-common
+        state: present
+        update_cache: yes
 
-    - name: "Probar montaje NFS"
+    # === PROBAR MONTAJE MANUAL ===
+    - name: "Probar montaje manual NFS"
       mount:
-        path: "{{ directories.nfs_mount }}"
-        src: "{{ master_server.ip }}:{{ directories.backups }}"
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+        src: "{{ master_server_ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
         fstype: nfs
-        opts: defaults,auto,rw,user
+        opts: defaults
+        state: mounted
+      register: nfs_mount_test
+
+    - name: "Verificar montaje NFS"
+      command: df -h /home/admin/wwwroot/dolibarr_documents/sellyoursaas
+      register: nfs_mount_check
+      when: nfs_mount_test is succeeded
+
+    - name: "Desmontar para configurar fstab"
+      mount:
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+        state: unmounted
+      when: nfs_mount_test is succeeded
+
+    # === CONFIGURAR /etc/fstab ===
+    - name: "Verificar si la entrada NFS ya existe en /etc/fstab"
+      lineinfile:
+        path: /etc/fstab
+        regexp: '.*sellyoursaas.*nfs.*'
+        state: absent
+      check_mode: yes
+      register: fstab_check
+
+    - name: "Agregar entrada NFS a /etc/fstab"
+      lineinfile:
+        path: /etc/fstab
+        line: "{{ master_server_ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0"
+        backup: yes
+        insertafter: EOF
+      when: fstab_check is not changed
+
+    # === PROBAR MONTAJE AUTOMÁTICO ===
+    - name: "Probar montaje automático con mount -a"
+      command: mount -a
+      register: mount_auto_result
+
+    - name: "Verificar que el montaje automático funciona"
+      mount:
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+        src: "{{ master_server_ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+        fstype: nfs
+        opts: defaults
         state: mounted
 
-    - name: "Verificar acceso de escritura NFS"
-      file:
-        path: "{{ directories.nfs_mount }}/test_deploy_access"
-        state: touch
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
-      register: nfs_test
+    # === VERIFICACIONES FINALES ===
+    - name: "Verificar montaje NFS activo"
+      command: mount | grep sellyoursaas
+      register: nfs_active_mount
+      changed_when: false
 
-    - name: "Eliminar archivo de prueba NFS"
-      file:
-        path: "{{ directories.nfs_mount }}/test_deploy_access"
-        state: absent
-      when: nfs_test is succeeded
+    - name: "Verificar conectividad con servidor master"
+      command: "netstat -n | grep {{ master_server_ip | default('i.p.server.master') }}"
+      register: nfs_connectivity
+      changed_when: false
+      ignore_errors: yes
 
-    - name: "Configurar script de sincronización con master"
-      blockinfile:
-        path: "{{ directories.scripts }}/sync_with_master.sh"
-        create: yes
-        mode: '0755'
-        marker: "# {mark} ANSIBLE MANAGED SYNC SCRIPT"
-        block: |
-          #!/bin/bash
-          # Script para sincronizar templates y configuraciones desde master
-          
-          MASTER_IP="{{ master_server.ip }}"
-          LOG_FILE="/var/log/sync_master.log"
-          
-          # Función para log
-          log_message() {
-              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
-          }
-          
-          log_message "Iniciando sincronización con master"
-          
-          # Sincronizar templates de Dolibarr desde master via NFS
-          if [ -d "{{ directories.nfs_mount }}/templates" ]; then
-              rsync -av {{ directories.nfs_mount }}/templates/ {{ directories.templates }}/
-              log_message "Templates sincronizados desde NFS"
-          fi
-          
-          # Verificar conectividad con master
-          if ping -c 3 $MASTER_IP > /dev/null 2>&1; then
-              log_message "Conectividad con master OK"
-          else
-              log_message "ERROR: No hay conectividad con master $MASTER_IP"
-          fi
-          
-          log_message "Sincronización completada"
+    - name: "Verificar acceso de lectura al montaje NFS"
+      command: ls -la /home/admin/wwwroot/dolibarr_documents/sellyoursaas
+      register: nfs_read_test
+      changed_when: false
 
-    - name: "Configurar cron para sincronización automática"
-      cron:
-        name: "Sincronización con master"
-        minute: "*/15"
-        job: "{{ directories.scripts }}/sync_with_master.sh"
-        user: "{{ system_users.app_admin }}"
+    - name: "Verificar estado del servicio NFS"
+      command: systemctl status nfs-common
+      register: nfs_client_status
+      changed_when: false
 
-    - name: "Crear directorio para logs de NFS"
-      file:
-        path: /var/log/sync_master.log
-        state: touch
-        owner: "{{ system_users.app_admin }}"
-        group: www-data
-        mode: '0644'
+    # === MOSTRAR RESUMEN ===
+    - name: "Mostrar resumen de configuración NFS Cliente"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN NFS CLIENTE COMPLETADA ==="
+          - "Servidor Master: {{ master_server_ip | default('i.p.server.master') }}"
+          - "Directorio remoto: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - "Punto de montaje: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - "Tipo de montaje: NFSv4 (por defecto)"
+          - "Comandos ejecutados:"
+          - "  • apt install nfs-common"
+          - "  • mount -t nfs {{ master_server_ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - "  • umount /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - "  • echo '{{ master_server_ip | default('i.p.server.master') }}:/home/admin/wwwroot/dolibarr_documents/sellyoursaas /home/admin/wwwroot/dolibarr_documents/sellyoursaas  nfs  defaults 0 0' >> /etc/fstab"
+          - "  • mount -a"
+          - "Verificaciones:"
+          - "  • Montaje activo: {{ 'OK' if nfs_active_mount.rc == 0 else 'ERROR' }}"
+          - "  • Conectividad: {{ 'OK' if nfs_connectivity.rc == 0 else 'Verificar firewall' }}"
+          - "  • Acceso de lectura: {{ 'OK' if nfs_read_test.rc == 0 else 'ERROR' }}"
+          - "  • Servicio nfs-common: {{ 'OK' if nfs_client_status.rc == 0 else 'ERROR' }}"
+          - "Nota: Asegúrate de que el firewall esté abierto entre cliente y servidor NFS"

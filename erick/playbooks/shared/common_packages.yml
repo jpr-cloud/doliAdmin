@@ -1,143 +1,341 @@
 # =============================================================================
-# Instalación de Paquetes Comunes para Master y Deployment
+# Instalación de Paquetes del Sistema - SellYourSaas
+# Installation of system and application components
 # =============================================================================
 ---
-- name: "Instalación de paquetes del sistema"
-  hosts: '{{ target }}'
+- name: "Instalación de paquetes del sistema SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Verificar variables de paquetes requeridas"
-      assert:
-        that:
-          - packages_basic is defined
-          - packages_database is defined
-          - packages_web is defined
-          - packages_php is defined
-          - packages_security is defined
-          - packages_additional is defined
-        fail_msg: "Faltan variables de paquetes en group_vars/all.yml"
-        success_msg: "Variables de paquetes verificadas correctamente"
+    # === DETECTAR VERSIÓN DE UBUNTU ===
+    - name: "Detectar versión de Ubuntu"
+      set_fact:
+        ubuntu_version: "{{ ansible_distribution_version }}"
+        ubuntu_major: "{{ ansible_distribution_version.split('.')[0] }}"
 
+    - name: "Mostrar información del sistema"
+      debug:
+        msg:
+          - "=== INFORMACIÓN DEL SISTEMA ==="
+          - "Sistema: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "Arquitectura: {{ ansible_architecture }}"
+          - "Hostname: {{ ansible_hostname }}"
+
+    # === ACTUALIZAR CACHE ===
     - name: "Actualizar cache de paquetes"
       apt:
         update_cache: yes
         cache_valid_time: 3600
 
-    - name: "Desactivar actualizaciones automáticas"
-      package:
-        name: unattended-upgrades
-        state: absent
-# Paquetes básicos
-    - name: "Instalar paquetes básicos"
-      package:
-        name: "{{ packages_basic }}"
-        state: present
-      register: basic_packages_output
-      
-    - name: "Mostrar paquetes básicos instalados"
-      debug:
-        msg: "Paquetes básicos: instalación {{ 'exitosa' if basic_packages_output.changed else 'sin cambios' }}"
-# DB
-    - name: "Instalar paquetes de base de datos"
-      package:
-        name: "{{ packages_database }}"
-        state: present
-      register: database_packages_output
-      
-    - name: "Mostrar paquetes de base de datos instalados"
-      debug:
-        msg: "Paquetes de BD: instalación {{ 'exitosa' if database_packages_output.changed else 'sin cambios' }}"
-    - name: "Instalar paquetes web"
-      package:
-        name: "{{ packages_web }}"
-        state: present
-      register: web_packages_output
+    # === CONFIGURAR POSTFIX (PRECONFIGURACIÓN) ===
+    - name: "Preconfigurar Postfix como Internet Site"
+      debconf:
+        name: postfix
+        question: "{{ item.question }}"
+        value: "{{ item.value }}"
+        vtype: "{{ item.type }}"
+      loop:
+        - { question: "postfix/main_mailer_type", value: "Internet Site", type: "select" }
+        - { question: "postfix/mailname", value: "{{ ansible_fqdn }}", type: "string" }
+      register: postfix_config
 
-    - name: "Instalar paquetes PHP"
-      package:
-        name: "{{ packages_php }}"
+    # === INSTALACIÓN POR VERSIÓN DE UBUNTU ===
+    - name: "Instalar paquetes para Ubuntu 18.04-"
+      apt:
+        name:
+          # Basic packages
+          - ntp
+          - git
+          - gzip
+          - zip
+          - zstd
+          - memcached
+          - ncdu
+          - duc
+          - iotop
+          - acl
+          - ufw
+          - sudo
+          # Database
+          - mariadb-server
+          - mariadb-client
+          # Web server
+          - apache2
+          - apache2-bin
+          - lynx
+          # PHP packages
+          - php
+          - php-cli
+          - libapache2-mod-php
+          - php-fpm
+          - php-gd
+          - php-imap
+          - php-json
+          - php-ldap
+          - php-mysqlnd
+          - php-curl
+          - php-memcached
+          - php-imagick
+          - php-geoip
+          - php-mcrypt
+          - php-intl
+          - php-xml
+          - php-zip
+          - php-bz2
+          - php-ssh2
+          - php-mbstring
+          - php-soap
+          - php-tidy
+          - php-readline
+          - php-xmlrpc
+          - php-pear
+          # Security and system
+          - watchdog
+          - cpulimit
+          - libapache2-mpm-itk
+          - libapache2-mod-apparmor
+          - apparmor
+          - apparmor-profiles
+          - apparmor-utils
+          - rkhunter
+          - chkrootkit
+          - bind9
+          - spamc
+          - spamassassin
+          - clamdscan
+          - clamav-daemon
+          - fail2ban
+          - soffice
+          - libreoffice-common
+          - libreoffice-writer
+          - mailutils
+          - postfix
         state: present
-      register: php_packages_output
+      when: ubuntu_major | int < 20
+      register: packages_1804
 
-    - name: "Instalar paquetes de seguridad"
-      package:
-        name: "{{ packages_security }}"
+    - name: "Instalar paquetes para Ubuntu 20.04+"
+      apt:
+        name:
+          # Basic packages
+          - systemd-timesyncd
+          - git
+          - gzip
+          - zip
+          - zstd
+          - memcached
+          - ncdu
+          - duc
+          - iotop
+          - acl
+          - ufw
+          - sudo
+          # Database
+          - mariadb-server
+          - mariadb-client
+          # Web server
+          - apache2
+          - apache2-bin
+          - lynx
+          # PHP packages
+          - php
+          - php-cli
+          - libapache2-mod-php
+          - php-fpm
+          - php-gd
+          - php-imap
+          - php-json
+          - php-ldap
+          - php-mysql
+          - php-curl
+          - php-memcached
+          - php-imagick
+          - php-geoip
+          - php-intl
+          - php-xml
+          - php-zip
+          - php-bz2
+          - php-ssh2
+          - php-mbstring
+          - php-dev
+          - php-soap
+          - php-tidy
+          - libmcrypt-dev
+          - php-readline
+          - php-xmlrpc
+          - php-pear
+          - ghostscript
+          # Security and system
+          - watchdog
+          - cpulimit
+          - libapache2-mpm-itk
+          - libapache2-mod-apparmor
+          - apparmor
+          - apparmor-profiles
+          - apparmor-utils
+          - rkhunter
+          - chkrootkit
+          - bind9
+          - spamc
+          - spamassassin
+          - clamav
+          - clamav-daemon
+          - fail2ban
+          - libreoffice-common
+          - libreoffice-writer
+          - mailutils
+          - postfix
         state: present
-      register: security_packages_output
+      when: ubuntu_major | int >= 20 and ubuntu_major | int < 22
+      register: packages_2004
 
-    - name: "Instalar paquetes adicionales"
-      package:
-        name: "{{ packages_additional }}"
+    - name: "Instalar paquetes para Ubuntu 22.04+ y 24.04+"
+      apt:
+        name:
+          # Basic packages
+          - systemd-timesyncd
+          - git
+          - gzip
+          - zip
+          - zstd
+          - memcached
+          - ncdu
+          - duc
+          - iotop
+          - acl
+          - ufw
+          - sudo
+          # Database
+          - mariadb-server
+          - mariadb-client
+          # Web server
+          - apache2
+          - apache2-bin
+          - lynx
+          # PHP packages
+          - php
+          - php-cli
+          - libapache2-mod-php
+          - php-fpm
+          - php-gd
+          - php-imap
+          - php-json
+          - php-ldap
+          - php-mysql
+          - php-curl
+          - php-memcached
+          - php-imagick
+          - php-intl
+          - php-xml
+          - php-zip
+          - php-bz2
+          - php-ssh2
+          - php-mbstring
+          - php-dev
+          - php-soap
+          - php-tidy
+          - libmcrypt-dev
+          - php-readline
+          - php-xmlrpc
+          - php-pear
+          - ghostscript
+          # Security and system
+          - watchdog
+          - cpulimit
+          - libapache2-mpm-itk
+          - libapache2-mod-apparmor
+          - apparmor
+          - apparmor-profiles
+          - apparmor-utils
+          - rkhunter
+          - chkrootkit
+          - bind9
+          - spamc
+          - spamassassin
+          - clamav
+          - clamav-daemon
+          - fail2ban
+          - libreoffice-common
+          - libreoffice-writer
+          - mailutils
+          - postfix
         state: present
-      register: additional_packages_output
+      when: ubuntu_major | int >= 22
+      register: packages_2204
 
-    - name: "Mostrar resumen de instalación de paquetes"
-      debug:
-        msg: |
-          === RESUMEN DE INSTALACIÓN DE PAQUETES ===
-          Paquetes básicos: {{ 'instalados' if basic_packages_output.changed else 'sin cambios' }}
-          Paquetes BD: {{ 'instalados' if database_packages_output.changed else 'sin cambios' }}
-          Paquetes web: {{ 'instalados' if web_packages_output.changed else 'sin cambios' }}
-          Paquetes PHP: {{ 'instalados' if php_packages_output.changed else 'sin cambios' }}  
-          Paquetes seguridad: {{ 'instalados' if security_packages_output.changed else 'sin cambios' }}
-          Paquetes adicionales: {{ 'instalados' if additional_packages_output.changed else 'sin cambios' }}
-          ==========================================
+    # === VERIFICACIONES POST-INSTALACIÓN ===
+    - name: "Verificar versión de PHP instalada"
+      command: php --version
+      register: php_version_output
+      changed_when: false
 
-    - name: "Verificar estado de paquetes clave"
+    - name: "Verificar estado de servicios críticos"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - mariadb
+        - postfix
+        - fail2ban
+        - clamav-daemon
+        - spamassassin
+      register: services_check
+
+    - name: "Verificar paquetes instalados"
       command: dpkg -l {{ item }}
-      register: package_check
+      register: package_verification
       failed_when: false
       changed_when: false
       loop:
         - apache2
         - php
         - mariadb-server
+        - postfix
         - fail2ban
-      when: ansible_pkg_mgr == "apt"
+        - clamav-daemon
+        - spamassassin
+        - bind9
+        - apparmor
 
-    - name: "Mostrar estado de paquetes clave"
-      debug:
-        msg: |
-          === PAQUETES CLAVE VERIFICADOS ===
-          {% for result in package_check.results %}
-          {{ result.item }}: {{ 'instalado' if result.rc == 0 else 'no instalado' }}
-          {% endfor %}
-          =================================
-      when: package_check is defined
-
-    - name: "Verificar versión de PHP instalada"
-      command: php --version
-      register: php_version_output
-      changed_when: false
-
-    - name: "Mostrar versión de PHP"
-      debug:
-        msg: "Versión de PHP instalada: {{ php_version_output.stdout_lines[0] }}"
-
-#    - name: "Compilar e instalar extensión mcrypt para PHP"
-#      shell: |
-#        pecl install mcrypt
-#        echo 'extension=mcrypt.so' > /etc/php/{{ php.version }}/mods-available/mcrypt.ini
-#        phpenmod mcrypt
-#      args:
-#        creates: "/etc/php/{{ php.version }}/mods-available/mcrypt.ini"
-#      ignore_errors: yes
-#      register: mcrypt_install#
-#    - name: "Mostrar resultado de instalación mcrypt"
-#      debug:
-#        msg: |
-#          Instalación mcrypt: {{ 'exitosa' if mcrypt_install.rc == 0 else 'falló - se puede ignorar' }}
-#          {{ mcrypt_install.stdout if mcrypt_install.stdout is defined else '' }}
-
+    # === CONFIGURACIONES ADICIONALES ===
     - name: "Configurar timezone"
       timezone:
-        name: America/Mexico_City
+        name: "{{ system_timezone | default('UTC') }}"
 
-    - name: "Establecer shell por defecto a bash"
-      file:
-        src: /bin/bash
-        dest: /usr/bin/sh
-        state: link
-        force: yes
+    - name: "Desactivar actualizaciones automáticas"
+      package:
+        name: unattended-upgrades
+        state: absent
+      ignore_errors: yes
+
+    # === MOSTRAR RESUMEN COMPLETO ===
+    - name: "Mostrar resumen de instalación"
+      debug:
+        msg:
+          - "=== INSTALACIÓN DE PAQUETES COMPLETADA ==="
+          - "Sistema: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Versión de paquetes instalada: {{ 'Ubuntu 18.04-' if ubuntu_major | int < 20 else ('Ubuntu 20.04+' if ubuntu_major | int < 22 else 'Ubuntu 22.04+/24.04+') }}"
+          - "Instalación: {{ 'exitosa' if (packages_1804.changed or packages_2004.changed or packages_2204.changed) else 'sin cambios' }}"
+          - "Comandos ejecutados equivalentes:"
+          - "  • sudo apt update"
+          - "  • sudo apt install -y {{ 'ntp' if ubuntu_major | int < 20 else 'systemd-timesyncd' }} git gzip zip zstd memcached ncdu duc iotop acl ufw sudo"
+          - "  • sudo apt install -y mariadb-server mariadb-client"
+          - "  • sudo apt install -y apache2 apache2-bin lynx"
+          - "  • sudo apt install -y php php-cli libapache2-mod-php php-fpm php-gd php-imap php-json php-ldap {{ 'php-mysqlnd' if ubuntu_major | int < 20 else 'php-mysql' }} php-curl php-memcached php-imagick {{ 'php-geoip' if ubuntu_major | int < 22 else '' }} {{ 'php-mcrypt' if ubuntu_major | int < 20 else 'libmcrypt-dev' }} php-intl php-xml php-zip php-bz2 php-ssh2 php-mbstring php-soap php-tidy"
+          - "  • sudo apt install -y php-readline php-xmlrpc php-pear {{ 'ghostscript' if ubuntu_major | int >= 20 else '' }}"
+          - "  • sudo apt install -y watchdog cpulimit libapache2-mpm-itk libapache2-mod-apparmor apparmor apparmor-profiles apparmor-utils rkhunter chkrootkit"
+          - "  • sudo apt install -y bind9"
+          - "  • sudo apt install -y spamc spamassassin {{ 'clamdscan' if ubuntu_major | int < 20 else 'clamav' }} clamav-daemon"
+          - "  • sudo apt install -y fail2ban"
+          - "  • sudo apt install -y {{ 'soffice' if ubuntu_major | int < 20 else '' }} libreoffice-common libreoffice-writer"
+          - "  • sudo apt install -y mailutils postfix"
+          - "Versión PHP: {{ php_version_output.stdout_lines[0] if php_version_output.stdout_lines else 'Error obteniendo versión' }}"
+          - "Servicios habilitados: apache2, mariadb, postfix, fail2ban, clamav-daemon, spamassassin"
+          - "Configuración Postfix: Internet Site ({{ ansible_fqdn }})"
+          - "Timezone: {{ system_timezone | default('UTC') }}"
+          - "Actualizaciones automáticas: desactivadas"

@@ -1,0 +1,98 @@
+# =============================================================================
+# Configuración Timeout MariaDB para SellYourSaas
+# Timeout of server launches
+# =============================================================================
+---
+- name: "Configurar timeout de MariaDB para SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === VERIFICAR SI EXISTE MARIADB ===
+    - name: "Verificar si MariaDB está instalado"
+      command: systemctl is-enabled mariadb
+      register: mariadb_service
+      failed_when: false
+      changed_when: false
+
+    - name: "Verificar si MySQL está instalado"
+      command: systemctl is-enabled mysql
+      register: mysql_service
+      failed_when: false
+      changed_when: false
+
+    - name: "Determinar servicio de base de datos"
+      set_fact:
+        db_service: "{{ 'mariadb' if mariadb_service.rc == 0 else 'mysql' }}"
+
+    # === CREAR DIRECTORIO DE CONFIGURACIÓN ===
+    - name: "Crear directorio de configuración systemd para {{ db_service }}"
+      file:
+        path: "/etc/systemd/system/{{ db_service }}.service.d"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # === CONFIGURAR TIMEOUT ===
+    - name: "Configurar timeout de arranque y parada para {{ db_service }}"
+      copy:
+        content: |
+          # =============================================================================
+          # Configuración de Timeout para SellYourSaas
+          # Timeout of server launches
+          # =============================================================================
+          # 
+          # Incrementa el timeout para procesos de arranque porque a veces 
+          # mysql/mariadb puede tardar mucho en reiniciar después de un crash.
+          # 
+          # Configuración recomendada por SellYourSaas:
+          # - TimeoutStartSec: 3600s (1 hora)
+          # - TimeoutStopSec: 3600s (1 hora)
+          # 
+          # Nota: Es posible poner "infinity" pero 3600s es preferible
+          # 
+          [Service]
+          TimeoutStartSec=3600s
+          TimeoutStopSec=3600s
+        dest: "/etc/systemd/system/{{ db_service }}.service.d/migrated-from-my.cnf-settings.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      register: timeout_config
+      notify:
+        - reload systemd
+        - restart database
+
+    # === VERIFICAR CONFIGURACIÓN ACTUAL ===
+    - name: "Verificar configuración actual de timeout"
+      command: "systemctl show {{ db_service }} -p TimeoutStartUSec -p TimeoutStopUSec"
+      register: current_timeout
+      changed_when: false
+
+    # === MOSTRAR INFORMACIÓN ===
+    - name: "Mostrar información de configuración"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN TIMEOUT {{ db_service | upper }} COMPLETADA ==="
+          - "Servicio detectado: {{ db_service }}"
+          - "Archivo de configuración: /etc/systemd/system/{{ db_service }}.service.d/migrated-from-my.cnf-settings.conf"
+          - "Configuración aplicada: {{ 'SÍ' if timeout_config.changed else 'YA EXISTÍA' }}"
+          - "TimeoutStartSec: 3600s (1 hora)"
+          - "TimeoutStopSec: 3600s (1 hora)"
+          - "Configuración actual:"
+          - "{{ current_timeout.stdout_lines }}"
+          - "NOTA: Configuración se aplicará después del reinicio del servicio"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart database
+      systemd:
+        name: "{{ db_service }}"
+        state: restarted
+      when: timeout_config.changed

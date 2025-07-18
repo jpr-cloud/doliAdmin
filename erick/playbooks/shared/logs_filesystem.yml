@@ -1,0 +1,152 @@
+# =============================================================================
+# Configuración del Filesystem de Logs - Shared (Master y Deploy)
+# Addition of a filesystem for logs (optional)
+# =============================================================================
+---
+- name: "Configuración del filesystem de logs"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear punto de montaje {{ logs_filesystem.mount_point }}"
+      file:
+        path: "{{ logs_filesystem.mount_point }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: "Verificar si el disco de logs existe"
+      stat:
+        path: "{{ logs_filesystem.device }}"
+      register: logs_disk
+
+    - name: "Formatear disco de logs si existe y no está formateado"
+      filesystem:
+        fstype: "{{ logs_filesystem.filesystem_type }}"
+        dev: "{{ logs_filesystem.device }}"
+        force: no
+      when: 
+        - logs_disk.stat.exists
+        - logs_filesystem.format_disk | default(false)
+
+    - name: "Montar disco de logs"
+      mount:
+        path: "{{ logs_filesystem.mount_point }}"
+        src: "{{ logs_filesystem.device }}"
+        fstype: "{{ logs_filesystem.filesystem_type }}"
+        opts: "{{ logs_filesystem.mount_options }}"
+        state: mounted
+      when: 
+        - logs_disk.stat.exists
+        - logs_filesystem.auto_mount | default(true)
+
+    - name: "Configurar montaje automático en /etc/fstab"
+      mount:
+        path: "{{ logs_filesystem.mount_point }}"
+        src: "{{ logs_filesystem.device }}"
+        fstype: "{{ logs_filesystem.filesystem_type }}"
+        opts: "{{ logs_filesystem.mount_options }}"
+        dump: 0
+        passno: 0
+        state: present
+      when: 
+        - logs_disk.stat.exists
+        - logs_filesystem.auto_mount | default(true)
+
+    - name: "Configurar permisos del directorio de logs"
+      file:
+        path: "{{ logs_filesystem.mount_point }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: adm
+      when: logs_disk.stat.exists
+
+    - name: "Modificar /etc/apache2/envvars para usar el nuevo directorio de logs"
+      lineinfile:
+        path: /etc/apache2/envvars
+        regexp: '^export APACHE_LOG_DIR='
+        line: 'export APACHE_LOG_DIR={{ logs_filesystem.apache_log_dir }}'
+        backup: yes
+      when: logs_disk.stat.exists
+      notify: restart apache2
+
+    - name: "Verificar si /home/admin/logs existe como directorio"
+      stat:
+        path: /home/admin/logs
+      register: admin_logs_dir
+
+    - name: "Hacer backup del directorio /home/admin/logs si existe"
+      command: mv /home/admin/logs /home/admin/logs.backup
+      when: 
+        - admin_logs_dir.stat.exists
+        - admin_logs_dir.stat.isdir
+        - logs_filesystem.admin_logs_symlink | default(true)
+        - logs_disk.stat.exists
+
+    - name: "Eliminar /home/admin/logs si existe como enlace simbólico"
+      file:
+        path: /home/admin/logs
+        state: absent
+      when: 
+        - admin_logs_dir.stat.exists
+        - admin_logs_dir.stat.islnk
+        - logs_filesystem.admin_logs_symlink | default(true)
+        - logs_disk.stat.exists
+
+    - name: "Crear enlace simbólico desde /home/admin/logs al directorio de logs"
+      file:
+        src: "{{ logs_filesystem.mount_point }}"
+        dest: /home/admin/logs
+        state: link
+        owner: admin
+        group: admin
+      when: 
+        - logs_filesystem.admin_logs_symlink | default(true)
+        - logs_disk.stat.exists
+
+    - name: "Crear directorio de logs de Apache en el nuevo filesystem"
+      file:
+        path: "{{ logs_filesystem.mount_point }}/apache2"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: adm
+      when: logs_disk.stat.exists
+
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+      when: logs_disk.stat.exists
+
+    - name: "Mostrar información del filesystem de logs"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DEL FILESYSTEM DE LOGS ==="
+          - "Servidor: {{ server_type | default('unknown') }}"
+          - "Disco: {{ logs_filesystem.device }}"
+          - "Punto de montaje: {{ logs_filesystem.mount_point }}"
+          - "Tipo de filesystem: {{ logs_filesystem.filesystem_type }}"
+          - "APACHE_LOG_DIR: {{ logs_filesystem.apache_log_dir }}"
+          - "Enlace simbólico /home/admin/logs: {{ 'Sí' if logs_filesystem.admin_logs_symlink else 'No' }}"
+          - "Estado del disco: {{ 'Disponible' if logs_disk.stat.exists else 'No encontrado' }}"
+      when: logs_disk.stat.exists
+
+    - name: "Advertencia si el disco no existe"
+      debug:
+        msg:
+          - "¡ADVERTENCIA! El disco {{ logs_filesystem.device }} no existe en {{ inventory_hostname }}."
+          - "Para configurar el filesystem de logs manualmente:"
+          - "1. Crear un disco de 500MB o usar un disco virtual"
+          - "2. Formatear: mkfs.ext4 -F {{ logs_filesystem.device }}"
+          - "3. Volver a ejecutar este playbook"
+          - "4. Reiniciar Apache: systemctl restart apache2"
+      when: not logs_disk.stat.exists
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

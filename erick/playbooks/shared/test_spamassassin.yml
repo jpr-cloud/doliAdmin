@@ -1,0 +1,132 @@
+---
+- name: Test SpamAssassin Configuration
+  hosts: all
+  become: yes
+  vars:
+    gtube_test_content: |
+      Subject: Test spam mail (GTUBE)
+      Message-ID: <GTUBE1.1010101@example.net>
+      Date: Wed, 23 Jul 2003 23:30:00 +0200
+      From: Sender <sender@example.net>
+      To: Recipient <recipient@example.net>
+      Precedence: junk
+      MIME-Version: 1.0
+      Content-Type: text/plain; charset=us-ascii
+      Content-Transfer-Encoding: 7bit
+
+      This is the GTUBE, the
+          Generic
+          Test for
+          Unsolicited
+          Bulk
+          Email
+
+      If your spam filter supports it, the GTUBE provides a test by which you
+      can verify that the filter is installed correctly and is detecting incoming
+      spam. You can send yourself a test mail containing the following string of
+      characters (in upper case and with no white spaces and line breaks):
+
+      XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X
+
+      You should send this test mail from an account outside of your network.
+
+  tasks:
+    - name: Check if SpamAssassin is installed
+      command: which spamc
+      register: spamc_check
+      failed_when: false
+      changed_when: false
+
+    - name: Display SpamAssassin installation status
+      debug:
+        msg: "SpamAssassin spamc client found at: {{ spamc_check.stdout }}"
+      when: spamc_check.rc == 0
+
+    - name: Fail if SpamAssassin is not installed
+      fail:
+        msg: "SpamAssassin (spamc) is not installed. Please install it first."
+      when: spamc_check.rc != 0
+
+    - name: Check if spamd service is running
+      service:
+        name: spamassassin
+        state: started
+      register: spamd_service
+      failed_when: false
+
+    - name: Start SpamAssassin daemon manually if not running
+      command: /etc/init.d/spamassassin start
+      when: spamd_service.failed is defined and spamd_service.failed
+      register: spamd_manual_start
+
+    - name: Wait for spamd to be ready
+      wait_for:
+        port: 783
+        timeout: 30
+      ignore_errors: yes
+
+    - name: Create GTUBE test file
+      copy:
+        content: "{{ gtube_test_content }}"
+        dest: /tmp/testspam
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Test SpamAssassin with GTUBE test (full output)
+      shell: spamc < /tmp/testspam
+      register: spamc_test_output
+      failed_when: false
+      changed_when: false
+
+    - name: Test SpamAssassin with GTUBE test (check only)
+      shell: spamc -c < /tmp/testspam
+      register: spamc_check_result
+      failed_when: false
+      changed_when: false
+
+    - name: Display SpamAssassin test results
+      debug:
+        msg: |
+          SpamAssassin Test Results:
+          ==========================
+          
+          spamc test output (first 500 chars):
+          {{ spamc_test_output.stdout[:500] }}...
+          
+          spamc check result: {{ spamc_check_result.rc }}
+          {% if spamc_check_result.rc == 1 %}
+          ✅ SUCCESS: Spam was correctly detected as spam (exit code 1)
+          {% else %}
+          ❌ FAILED: Spam was not detected correctly (exit code {{ spamc_check_result.rc }})
+          {% endif %}
+
+    - name: Verify SpamAssassin is working correctly
+      assert:
+        that:
+          - spamc_check_result.rc == 1
+        fail_msg: "SpamAssassin test failed: GTUBE test should return exit code 1 but returned {{ spamc_check_result.rc }}"
+        success_msg: "SpamAssassin test passed: GTUBE test correctly detected spam"
+
+    - name: Clean up test file
+      file:
+        path: /tmp/testspam
+        state: absent
+
+    - name: Display SpamAssassin service status
+      service:
+        name: spamassassin
+        state: started
+        enabled: yes
+      register: final_service_status
+
+    - name: Summary of SpamAssassin test
+      debug:
+        msg: |
+          SpamAssassin Test Summary:
+          =========================
+          ✅ SpamAssassin daemon is running
+          ✅ GTUBE test passed (spam correctly detected)
+          ✅ SpamAssassin service is enabled for automatic startup
+          
+          SpamAssassin is properly configured and working!

@@ -1,0 +1,176 @@
+---
+- name: Test and Setup of ClamAV
+  hosts: all
+  become: yes
+  vars:
+    eicar_test_content: "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+
+  tasks:
+    - name: Check if ClamAV is installed
+      command: which clamdscan
+      register: clamdscan_check
+      failed_when: false
+      changed_when: false
+
+    - name: Display ClamAV installation status
+      debug:
+        msg: "ClamAV clamdscan client found at: {{ clamdscan_check.stdout }}"
+      when: clamdscan_check.rc == 0
+
+    - name: Fail if ClamAV is not installed
+      fail:
+        msg: "ClamAV (clamdscan) is not installed. Please install it first."
+      when: clamdscan_check.rc != 0
+
+    - name: Check if freshclam service is running
+      service:
+        name: clamav-freshclam
+        state: started
+      register: freshclam_service
+      failed_when: false
+
+    - name: Start freshclam service manually if not running
+      command: /etc/init.d/clamav-freshclam start
+      when: freshclam_service.failed is defined and freshclam_service.failed
+      register: freshclam_manual_start
+
+    - name: Check if clamd service is running
+      service:
+        name: clamav-daemon
+        state: started
+      register: clamd_service
+      failed_when: false
+
+    - name: Start clamd service manually if not running
+      command: /etc/init.d/clamav-daemon start
+      when: clamd_service.failed is defined and clamd_service.failed
+      register: clamd_manual_start
+
+    - name: Wait for clamd socket to be ready
+      wait_for:
+        path: /run/clamav/clamd.ctl
+        timeout: 30
+      ignore_errors: yes
+
+    - name: Create EICAR test file
+      copy:
+        content: "{{ eicar_test_content }}"
+        dest: /tmp/testvirus
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Test ClamAV with EICAR test file
+      shell: clamdscan /tmp/testvirus --fdpass
+      register: clamav_test_result
+      failed_when: false
+      changed_when: false
+
+    - name: Display ClamAV test results
+      debug:
+        msg: |
+          ClamAV Test Results:
+          ===================
+          
+          Command output:
+          {{ clamav_test_result.stdout }}
+          
+          {% if 'Infected files: 1' in clamav_test_result.stdout %}
+          ✅ SUCCESS: Virus was correctly detected (Infected files: 1)
+          {% else %}
+          ❌ FAILED: Virus was not detected correctly
+          {% endif %}
+
+    - name: Verify ClamAV detected the test virus
+      assert:
+        that:
+          - "'Infected files: 1' in clamav_test_result.stdout"
+        fail_msg: "ClamAV test failed: EICAR test should show 'Infected files: 1' but got: {{ clamav_test_result.stdout }}"
+        success_msg: "ClamAV test passed: EICAR test virus correctly detected"
+
+    - name: Clean up test virus file
+      file:
+        path: /tmp/testvirus
+        state: absent
+
+    - name: Check if AppArmor profile for clamd exists
+      stat:
+        path: /etc/apparmor.d/usr.sbin.clamd
+      register: apparmor_clamd_profile
+
+    - name: Disable AppArmor profile for usr.sbin.clamd
+      command: aa-disable usr.sbin.clamd
+      when: apparmor_clamd_profile.stat.exists
+      register: apparmor_disable_result
+
+    - name: Display AppArmor disable result
+      debug:
+        msg: "AppArmor profile usr.sbin.clamd disabled: {{ apparmor_disable_result.stdout if apparmor_disable_result is defined else 'Profile not found' }}"
+      when: apparmor_clamd_profile.stat.exists
+
+    - name: List disabled AppArmor profiles
+      command: ls -alrt /etc/apparmor.d/disable
+      register: apparmor_disabled_list
+      failed_when: false
+      changed_when: false
+
+    - name: Display disabled AppArmor profiles
+      debug:
+        msg: |
+          Disabled AppArmor profiles:
+          {{ apparmor_disabled_list.stdout }}
+
+    - name: Reload AppArmor service
+      service:
+        name: apparmor
+        state: reloaded
+      when: apparmor_clamd_profile.stat.exists
+
+    - name: Check AppArmor status
+      command: service apparmor status
+      register: apparmor_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display AppArmor status
+      debug:
+        msg: |
+          AppArmor Status:
+          {{ apparmor_status.stdout }}
+
+    - name: Stop Apache2 service
+      service:
+        name: apache2
+        state: stopped
+
+    - name: Start Apache2 service
+      service:
+        name: apache2
+        state: started
+
+    - name: Verify ClamAV services are running and enabled
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - clamav-freshclam
+        - clamav-daemon
+      register: clamav_services_status
+
+    - name: Final ClamAV setup summary
+      debug:
+        msg: |
+          ClamAV Setup Summary:
+          ====================
+          ✅ ClamAV freshclam service is running and enabled
+          ✅ ClamAV daemon service is running and enabled
+          ✅ EICAR test passed (virus correctly detected)
+          ✅ AppArmor profile usr.sbin.clamd disabled
+          ✅ AppArmor service reloaded
+          ✅ Apache2 service restarted
+          
+          ClamAV is properly configured and working!
+          
+          Note: The AppArmor profile for usr.sbin.clamd has been disabled 
+          to allow ClamAV to be called from web processes without "getattr" errors.

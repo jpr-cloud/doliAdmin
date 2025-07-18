@@ -1,23 +1,313 @@
 # =============================================================================
-# Instalación y configuración de Afick
+# Instalación y configuración de Afick (Advanced File Integrity Checker)
 # =============================================================================
 ---
-- name: "Instalación de Afick para monitoreo de integridad"
-  hosts: '{{ target }}'
-  become: true
-  gather_facts: yes
+- name: Installation of Afick (Advanced File Integrity Checker)
+  hosts: all
+  become: yes
+  vars:
+    afick_ubuntu_18_url: "https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download"
+    afick_ubuntu_22_url: "https://sourceforge.net/projects/afick/files/afick/3.7.0/afick-3.7.0.tgz/download"
+    afick_ubuntu_24_url: "https://sourceforge.net/projects/afick/files/afick/3.8.1/afick-3.8.1.tgz/download"
+    afick_macros_config: |
+      # used by cron job (afick_cron)
+      # define the mail adress to send cron job result
+      @@define MAILTO supervision@mysaasdomainname.com
+      # truncate the result sended by mail to the number of lines (avoid too long mails)
+      @@define LINES 1000
+      # REPORT = 1 to enable mail reports, =0 to disable report
+      @@define REPORT 1
+      # VERBOSE = 1 to have one mail by run, =0 to have a mail only if changes are detected
+      @@define VERBOSE 1
+      # define the nice value : from 0 to 19 (priority of the job)
+      @@define NICE 18
+      # = 1 to allow cron job, = 0 to suppress cron job
+      @@define BATCH 1
+
+      # if set to 0, keep all archives, else define the number of days to keep
+      # with the syntaxe nS , n for a number, S for the scale
+      # (d for day, w for week, m for month, y for year)
+      # ex : for 5 months : 5m
+      @@define ARCHIVE_RETENTION 6m
+    afick_additional_config: |
+      /snap/bin all
+
+      !/var/log/mysql
+      !/var/log/letsencrypt
+      !/var/log/datadog
+      !/var/log/clamav/
+
+      !/etc/apache2/sellyoursaas-available
+      !/etc/apache2/sellyoursaas-online
+      !/etc/bind/archives
+      !/etc/bind/
+      !/etc/group
+      !/etc/group-
+      !/etc/gshadow
+      !/etc/gshadow-
+      !/etc/passwd
+      !/etc/passwd-
+      !/etc/shadow
+      !/etc/shadow-
+      !/etc/subgid
+      !/etc/subgid-
+      !/etc/subuid
+      !/etc/subuid-
+
+      /home MyRule
+      /home/admin/logs Logs
+      !/home/admin/backup
+      !/home/jail/home
+      !/home/admin/wwwroot/dolibarr_documents
+      !/home/admin/wwwroot/dolibarr/.git
+      !/home/admin/wwwroot/dolibarr_sellyoursaas/.git
+
+      !/home/admin/.bash_history
+      !/home/admin/.viminfo
+      !/home/admin/.mysql_history
+      !/home/myfirstnamelastname/.bash_history
+      !/home/myfirstnamelastname/.viminfo
+      !/home/myfirstnamelastname/.mysql_history
+      !/root/.bash_history
+      !/root/.viminfo
+      !/root/.mysql_history
+
+      exclude_suffix := cache
 
   tasks:
-    - name: "Descargar paquete Afick"
-      get_url:
-        url: "https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download"
-        dest: "/tmp/afick.deb"
-        mode: '0644'
+    - name: Detect Ubuntu version
+      shell: lsb_release -rs
+      register: ubuntu_version
+      changed_when: false
 
-    - name: "Instalar paquete Afick"
-      apt:
-        deb: "/tmp/afick.deb"
-        state: present
+    - name: Display Ubuntu version
+      debug:
+        msg: "Detected Ubuntu version: {{ ubuntu_version.stdout }}"
+
+    - name: Install Afick for Ubuntu 18.04
+      block:
+        - name: Download Afick deb package for Ubuntu 18.04
+          get_url:
+            url: "{{ afick_ubuntu_18_url }}"
+            dest: /tmp/afick.deb
+            mode: '0644'
+
+        - name: Install Afick deb package
+          dpkg:
+            deb: /tmp/afick.deb
+            state: present
+
+        - name: Move afick cron file
+          command: mv /etc/cron.daily/afick_cron.dpkg-new /etc/cron.daily/afick_cron
+          args:
+            creates: /etc/cron.daily/afick_cron
+
+        - name: Set executable permissions on afick cron
+          file:
+            path: /etc/cron.daily/afick_cron
+            mode: '0755'
+
+      when: ubuntu_version.stdout is version('18.04', '==')
+
+    - name: Install Afick for Ubuntu 22.04
+      block:
+        - name: Download Afick source for Ubuntu 22.04
+          get_url:
+            url: "{{ afick_ubuntu_22_url }}"
+            dest: /tmp/afick.tgz
+            mode: '0644'
+
+        - name: Extract Afick source
+          unarchive:
+            src: /tmp/afick.tgz
+            dest: /tmp/
+            remote_src: yes
+
+        - name: Build and install Afick
+          shell: |
+            cd /tmp/afick-3.7.0
+            perl Makefile.pl
+            make install
+          args:
+            creates: /opt/afick/bin/afick.pl
+
+        - name: Create symbolic links
+          file:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+            state: link
+            force: yes
+          loop:
+            - { src: "/opt/afick/etc/afick.conf", dest: "/etc/afick.conf" }
+            - { src: "/opt/afick/bin/afick.pl", dest: "/usr/bin/afick.pl" }
+
+        - name: Move afick cron file
+          command: mv /tmp/afick-3.7.0/afick_cron /etc/cron.daily/afick_cron
+          args:
+            creates: /etc/cron.daily/afick_cron
+
+        - name: Update afick cron script paths
+          replace:
+            path: /etc/cron.daily/afick_cron
+            regexp: "{{ item.regexp }}"
+            replace: "{{ item.replace }}"
+          loop:
+            - { regexp: 'AFICK="/usr/bin/afick.pl"', replace: 'AFICK="/opt/afick/bin/afick.pl"' }
+            - { regexp: '/usr/bin/afick_archive.pl', replace: '/opt/afick/bin/afick_archive.pl' }
+
+        - name: Set executable permissions on afick cron
+          file:
+            path: /etc/cron.daily/afick_cron
+            mode: '0755'
+
+      when: ubuntu_version.stdout is version('22.04', '==')
+
+    - name: Install Afick for Ubuntu 24.04
+      block:
+        - name: Download Afick source for Ubuntu 24.04
+          get_url:
+            url: "{{ afick_ubuntu_24_url }}"
+            dest: /tmp/afick.tgz
+            mode: '0644'
+
+        - name: Extract Afick source
+          unarchive:
+            src: /tmp/afick.tgz
+            dest: /tmp/
+            remote_src: yes
+
+        - name: Build and install Afick
+          shell: |
+            cd /tmp/afick-3.8.1
+            perl Makefile.pl
+            make install
+          args:
+            creates: /opt/afick/bin/afick.pl
+
+        - name: Create symbolic links
+          file:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+            state: link
+            force: yes
+          loop:
+            - { src: "/opt/afick/etc/afick.conf", dest: "/etc/afick.conf" }
+            - { src: "/opt/afick/bin/afick.pl", dest: "/usr/bin/afick.pl" }
+
+        - name: Move afick cron file
+          command: mv /tmp/afick-3.8.1/afick_cron /etc/cron.daily/afick_cron
+          args:
+            creates: /etc/cron.daily/afick_cron
+
+        - name: Update afick cron script paths
+          replace:
+            path: /etc/cron.daily/afick_cron
+            regexp: "{{ item.regexp }}"
+            replace: "{{ item.replace }}"
+          loop:
+            - { regexp: 'AFICK="/usr/bin/afick.pl"', replace: 'AFICK="/opt/afick/bin/afick.pl"' }
+            - { regexp: '/usr/bin/afick_archive.pl', replace: '/opt/afick/bin/afick_archive.pl' }
+
+        - name: Set executable permissions on afick cron
+          file:
+            path: /etc/cron.daily/afick_cron
+            mode: '0755'
+
+      when: ubuntu_version.stdout is version('24.04', '>=')
+
+    - name: Comment out unwanted exclude_suffix lines in afick.conf
+      replace:
+        path: /etc/afick.conf
+        regexp: '^(exclude_suffix := (?!log LOG|tmp old bak).*)'
+        replace: '#\1'
+      register: afick_exclusions
+
+    - name: Ensure only desired exclude_suffix lines remain uncommented
+      blockinfile:
+        path: /etc/afick.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - exclude_suffix"
+        insertafter: "^#.*exclude_suffix"
+        block: |
+          exclude_suffix := log LOG
+          exclude_suffix := tmp old bak
+
+    - name: Add macros configuration to afick.conf
+      blockinfile:
+        path: /etc/afick.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - macros"
+        insertafter: "^# macros"
+        block: "{{ afick_macros_config }}"
+
+    - name: Add additional configuration to afick.conf
+      blockinfile:
+        path: /etc/afick.conf
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - additional config"
+        insertafter: EOF
+        block: "{{ afick_additional_config }}"
+
+    - name: Initialize Afick database
+      shell: /opt/afick/bin/afick.pl -i
+      args:
+        creates: /var/lib/afick/afick.db
+      register: afick_init_result
+      when: ubuntu_version.stdout is version('18.04', '>')
+
+    - name: Initialize Afick database for Ubuntu 18.04
+      shell: /usr/bin/afick.pl -i
+      args:
+        creates: /var/lib/afick/afick.db
+      register: afick_init_result_18
+      when: ubuntu_version.stdout is version('18.04', '==')
+
+    - name: Display Afick initialization result
+      debug:
+        msg: |
+          Afick database initialization:
+          {{ afick_init_result.stdout if afick_init_result is defined else afick_init_result_18.stdout }}
+      when: afick_init_result is defined or afick_init_result_18 is defined
+
+    - name: Test Afick cron execution
+      shell: /etc/cron.daily/afick_cron
+      register: afick_cron_test
+      failed_when: false
+      changed_when: false
+
+    - name: Display Afick cron test result
+      debug:
+        msg: |
+          Afick cron test execution:
+          Return code: {{ afick_cron_test.rc }}
+          Note: Email errors can be ignored as email setup is done later
+          
+          Output (first 500 chars):
+          {{ afick_cron_test.stdout[:500] if afick_cron_test.stdout else 'No output' }}
+
+    - name: Clean up temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/afick.deb
+        - /tmp/afick.tgz
+        - /tmp/afick-3.7.0
+        - /tmp/afick-3.8.1
+
+    - name: Afick installation summary
+      debug:
+        msg: |
+          Afick Installation Summary:
+          ==========================
+          ✅ Afick installed for Ubuntu {{ ubuntu_version.stdout }}
+          ✅ Configuration file updated with macros and rules
+          ✅ Exclude suffixes configured (log, tmp, old, bak, cache)
+          ✅ Cron job configured in /etc/cron.daily/afick_cron
+          ✅ Database initialized
+          ✅ Cron execution tested
+          
+          Afick (Advanced File Integrity Checker) is now ready!
+          
+          Note: Email notifications will work once email system is configured.
+          Database location: /var/lib/afick/ or /opt/afick/database/
 
     - name: "Crear configuración básica de Afick"
       blockinfile:

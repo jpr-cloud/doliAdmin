@@ -1,0 +1,191 @@
+---
+# =============================================================================
+# Setup de cpulimit (opcional) - Limita el uso de CPU de procesos
+# =============================================================================
+
+- name: Setup of cpulimit (optional)
+  hosts: all
+  become: yes
+  vars:
+    cpu_limit: 40    # Porcentaje máximo de CPU por proceso
+    daemon_interval: 3  # Intervalo de comprobación en segundos
+
+  tasks:
+    - name: Install cpulimit package
+      apt:
+        name: cpulimit
+        state: present
+        update_cache: yes
+
+    - name: Create cpulimit_daemon.sh script
+      copy:
+        dest: /usr/bin/cpulimit_daemon.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # ==============================================================
+          # CPU limit daemon - set PID's max. percentage CPU consumptions
+          # ==============================================================
+
+          # Variables
+          CPU_LIMIT={{ cpu_limit }}       	# Maximum percentage CPU consumption by each PID
+          DAEMON_INTERVAL={{ daemon_interval }}  	# Daemon check interval in seconds
+          BLACK_PROCESSES_LIST=   # Limit only processes defined in this variable. If variable is empty (default) all violating processes are limited.
+          WHITE_PROCESSES_LIST=   # Limit all processes except processes defined in this variable. If variable is empty (default) all violating processes are limited.
+
+          # Check if one of the variables BLACK_PROCESSES_LIST or WHITE_PROCESSES_LIST is defined.
+          if [[ -n "$BLACK_PROCESSES_LIST" &&  -n "$WHITE_PROCESSES_LIST" ]] ; then    # If both variables are defined then error is produced.
+             echo "At least one or both of the variables BLACK_PROCESSES_LIST or WHITE_PROCESSES_LIST must be empty."
+             exit 1
+          elif [[ -n "$BLACK_PROCESSES_LIST" ]] ; then                                 # If this variable is non-empty then set NEW_PIDS_COMMAND variable to bellow command
+             NEW_PIDS_COMMAND="top -b -n1 -c | grep -E '$BLACK_PROCESSES_LIST' | gawk '\$9>CPU_LIMIT {print \$1}' CPU_LIMIT=$CPU_LIMIT"
+          elif [[ -n "$WHITE_PROCESSES_LIST" ]] ; then                                 # If this variable is non-empty then set NEW_PIDS_COMMAND variable to bellow command
+             NEW_PIDS_COMMAND="top -b -n1 -c | gawk 'NR>6' | grep -E -v '$WHITE_PROCESSES_LIST' | gawk '\$9>CPU_LIMIT {print \$1}' CPU_LIMIT=$CPU_LIMIT"
+          else
+             NEW_PIDS_COMMAND="top -b -n1 -c | gawk 'NR>6 && \$9>CPU_LIMIT {print \$1}' CPU_LIMIT=$CPU_LIMIT"
+          fi
+
+          # Search and limit violating PIDs
+          while sleep $DAEMON_INTERVAL
+          do
+             NEW_PIDS=$(eval "$NEW_PIDS_COMMAND")                                                                    # Violating PIDs
+             LIMITED_PIDS=$(ps -eo args | gawk '$1=="cpulimit" {print $3}')                                          # Already limited PIDs
+             QUEUE_PIDS=$(comm -23 <(echo "$NEW_PIDS" | sort -u) <(echo "$LIMITED_PIDS" | sort -u) | grep -v '^$')   # PIDs in queue
+
+             for i in $QUEUE_PIDS
+             do
+                 cpulimit -p $i -l $CPU_LIMIT -z &   # Limit new violating processes
+             done
+          done
+
+    - name: Create cpulimit_daemon_launcher.sh script
+      copy:
+        dest: /usr/bin/cpulimit_daemon_launcher.sh
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          #
+          # Script to start CPU limit daemon
+          #
+          set -e
+
+          case "$1" in
+          start)
+          if [ $(ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print $1}' | wc -l) -eq 0 ]; then
+              nohup /usr/bin/cpulimit_daemon.sh >/dev/null 2>&1 &
+              ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print}' | wc -l | gawk '{ if ($1 == 1) print " * cpulimit daemon started successfully"; else print " * cpulimit daemon can not be started" }'
+          else
+              echo " * cpulimit daemon can't be started, because it is already running"
+          fi
+          ;;
+          stop)
+          CPULIMIT_DAEMON=$(ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print $1}' | wc -l)
+          CPULIMIT_INSTANCE=$(ps -eo pid,args | gawk '$2=="cpulimit" {print $1}' | wc -l)
+          CPULIMIT_ALL=$((CPULIMIT_DAEMON + CPULIMIT_INSTANCE))
+          if [ $CPULIMIT_ALL -gt 0 ]; then
+              if [ $CPULIMIT_DAEMON -gt 0 ]; then
+                  ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print $1}' | xargs kill -9   # kill cpulimit daemon
+              fi
+
+              if [ $CPULIMIT_INSTANCE -gt 0 ]; then
+                  ps -eo pid,args | gawk '$2=="cpulimit" {print $1}' | xargs kill -9                    # release cpulimited process to normal priority
+              fi
+              ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print}' | wc -l | gawk '{ if ($1 == 1) print " * cpulimit daemon can not be stopped"; else print " * cpulimit daemon stopped successfully" }'
+          else
+              echo " * cpulimit daemon can't be stopped, because it is not running"
+          fi
+          ;;
+          restart)
+          $0 stop
+          sleep 3
+          $0 start
+          ;;
+          status)
+          ps -eo pid,args | gawk '$3=="/usr/bin/cpulimit_daemon.sh"  {print}' | wc -l | gawk '{ if ($1 == 1) print " * cpulimit daemon is running"; else print " * cpulimit daemon is not running" }'
+          ;;
+          esac
+          exit 0
+
+    - name: Create cpulimit init script in /etc/init.d/
+      copy:
+        dest: /etc/init.d/cpulimit_daemon
+        mode: '0755'
+        content: |
+          #!/bin/sh
+          ### BEGIN INIT INFO
+          # Provides:          cpulimit_daemon
+          # Required-Start:    $remote_fs $syslog
+          # Required-Stop:     $remote_fs $syslog
+          # Default-Start:     2 3 4 5
+          # Default-Stop:      0 1 6
+          # Short-Description: CPU limit daemon
+          # Description:       CPU limit daemon to restrict CPU usage of processes
+          ### END INIT INFO
+
+          # Carry out specific functions when asked to by the system
+          case "$1" in
+            start)
+              echo "Starting CPU limit daemon"
+              /usr/bin/cpulimit_daemon_launcher.sh start
+              ;;
+            stop)
+              echo "Stopping CPU limit daemon"
+              /usr/bin/cpulimit_daemon_launcher.sh stop
+              ;;
+            restart)
+              echo "Restarting CPU limit daemon"
+              /usr/bin/cpulimit_daemon_launcher.sh restart
+              ;;
+            status)
+              /usr/bin/cpulimit_daemon_launcher.sh status
+              ;;
+            *)
+              echo "Usage: /etc/init.d/cpulimit_daemon {start|stop|restart|status}"
+              exit 1
+              ;;
+          esac
+
+          exit 0
+
+    - name: Enable cpulimit daemon at boot
+      service:
+        name: cpulimit_daemon
+        enabled: yes
+
+    - name: Start cpulimit daemon
+      service:
+        name: cpulimit_daemon
+        state: started
+      register: cpulimit_service
+      failed_when: false
+
+    - name: Check if cpulimit daemon is running
+      command: /usr/bin/cpulimit_daemon_launcher.sh status
+      register: cpulimit_status
+      failed_when: false
+      changed_when: false
+
+    - name: Display cpulimit status
+      debug:
+        msg: |
+          CPUlimit setup status:
+          {{ cpulimit_status.stdout }}
+          
+          CPU limit is set to {{ cpu_limit }}% per process
+          Daemon check interval is {{ daemon_interval }} seconds
+
+    - name: CPUlimit summary
+      debug:
+        msg: |
+          CPUlimit Setup Summary:
+          ==========================
+          ✅ cpulimit package installed
+          ✅ cpulimit_daemon.sh script created in /usr/bin
+          ✅ cpulimit_daemon_launcher.sh script created in /usr/bin
+          ✅ cpulimit_daemon init script created in /etc/init.d/
+          ✅ cpulimit daemon enabled at boot
+          ✅ cpulimit daemon started
+          ✅ CPU usage limit set to {{ cpu_limit }}% per process
+          
+          CPUlimit is now configured to automatically limit CPU usage
+          of processes that exceed {{ cpu_limit }}% CPU usage.

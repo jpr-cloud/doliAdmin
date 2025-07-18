@@ -8,6 +8,9 @@ master_server:
   ip: '195.201.216.33'
   domain: 'j-cloud.com.mx'
   fqdn: 'master.j-cloud.com.mx'
+  admin_user: 'admin'
+  admin_password: 'admin123'
+  admin_ip: '127.0.0.1'  # IP permitida para acceso al admin por defecto
 
 deployment_server:
   hostname: 'deploy'
@@ -115,6 +118,20 @@ disk_configuration:
   auto_mount: true
   format_disk: false  # Cambiar a true si quieres formatear automáticamente
   optimize_memory: true
+
+# === CONFIGURACIÓN DEL FILESYSTEM DE LOGS ===
+logs_filesystem:
+  # Configuración del disco para logs (500MB recomendado)
+  device: '/dev/sdc'  # Disco específico para logs
+  mount_point: '/mnt/disklog'
+  filesystem_type: 'ext4'
+  mount_options: 'discard,nofail,defaults'
+  size: '500M'  # Tamaño recomendado para logs
+  auto_mount: true
+  format_disk: false  # Cambiar a true si quieres formatear automáticamente
+  # Configuración de Apache
+  apache_log_dir: '/mnt/disklog'
+  admin_logs_symlink: true  # Crear enlace simbólico desde /home/admin/logs
 
 # === EMAIL Y NOTIFICACIONES ===
 email:

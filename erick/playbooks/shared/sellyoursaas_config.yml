@@ -1,0 +1,130 @@
+# =============================================================================
+# Creación de archivos de configuración SellYourSaas - Shared (Master y Deploy)
+# Creation of /.conf with credentials = /etc/sellyoursaas.conf
+# =============================================================================
+---
+- name: "Crear archivos de configuración SellYourSaas"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === CREAR ARCHIVO /etc/sellyoursaas.conf ===
+    - name: "Crear archivo /etc/sellyoursaas.conf"
+      template:
+        src: "sellyoursaas.conf.j2"
+        dest: "/etc/sellyoursaas.conf"
+        owner: root
+        group: admin
+        mode: '0640'
+        backup: yes
+      vars:
+        is_master: "{{ server_type == 'master' }}"
+        is_deploy: "{{ server_type == 'deploy' }}"
+
+    # === CREAR ARCHIVO /etc/sellyoursaas-public.conf ===
+    - name: "Crear archivo /etc/sellyoursaas-public.conf"
+      copy:
+        content: |
+          # File /etc/sellyoursaas-public.conf
+
+          # Options for antispam system
+          maxemailperday=50
+          maxemailperdaypaid=500
+
+          # Option to use a different path for spam (for public script)
+          #pathtospamdir=/tmp/spam
+        dest: "/etc/sellyoursaas-public.conf"
+        owner: root
+        group: admin
+        mode: '0644'
+        backup: yes
+
+    # === CREAR DIRECTORIO /etc/sellyoursaas.d ===
+    - name: "Crear directorio /etc/sellyoursaas.d"
+      file:
+        path: "/etc/sellyoursaas.d"
+        state: directory
+        owner: root
+        group: admin
+        mode: '0755'
+
+    # === ESTABLECER PERMISOS ESPECÍFICOS ===
+    - name: "Establecer permisos específicos para sellyoursaas.conf"
+      file:
+        path: "/etc/sellyoursaas.conf"
+        owner: root
+        group: admin
+        mode: '0640'  # g-wx o-rwx
+
+    - name: "Aplicar permisos específicos con chmod para sellyoursaas.conf"
+      shell: |
+        chown root:admin /etc/sellyoursaas.conf
+        chmod g-wx /etc/sellyoursaas.conf
+        chmod o-rwx /etc/sellyoursaas.conf
+
+    - name: "Establecer permisos específicos para sellyoursaas-public.conf"
+      file:
+        path: "/etc/sellyoursaas-public.conf"
+        owner: root
+        group: admin
+        mode: '0644'  # a+r a-wx
+
+    - name: "Aplicar permisos específicos con chmod para sellyoursaas-public.conf"
+      shell: |
+        chown root:admin /etc/sellyoursaas-public.conf
+        chmod a+r /etc/sellyoursaas-public.conf
+        chmod a-wx /etc/sellyoursaas-public.conf
+
+    # === VERIFICAR ARCHIVOS CREADOS ===
+    - name: "Verificar que sellyoursaas.conf existe"
+      stat:
+        path: "/etc/sellyoursaas.conf"
+      register: sellyoursaas_conf
+
+    - name: "Verificar que sellyoursaas-public.conf existe"
+      stat:
+        path: "/etc/sellyoursaas-public.conf"
+      register: sellyoursaas_public_conf
+
+    - name: "Verificar que el directorio sellyoursaas.d existe"
+      stat:
+        path: "/etc/sellyoursaas.d"
+      register: sellyoursaas_dir
+
+    - name: "Fallar si los archivos no se crearon"
+      fail:
+        msg: "Error: No se pudieron crear los archivos de configuración"
+      when: not (sellyoursaas_conf.stat.exists and sellyoursaas_public_conf.stat.exists and sellyoursaas_dir.stat.exists)
+
+    # === MOSTRAR RESUMEN ===
+    - name: "Mostrar resumen de la configuración"
+      debug:
+        msg:
+          - "=== ARCHIVOS DE CONFIGURACIÓN CREADOS ==="
+          - "Tipo de servidor: {{ server_type }}"
+          - "Archivos creados:"
+          - "  • /etc/sellyoursaas.conf (permisos: 0640)"
+          - "  • /etc/sellyoursaas-public.conf (permisos: 0644)"
+          - "  • /etc/sellyoursaas.d/ (directorio)"
+          - "Configuración aplicada:"
+          - "  • masterserver={{ '1' if server_type == 'master' else '0' }}"
+          - "  • instanceserver={{ '0' if server_type == 'master' else '1' }}"
+          - "  • dnsserver={{ '0' if server_type == 'master' else '1' }}"
+          - "  • domain=mysaasdomainname.com"
+          - "  • databasehost={{ 'localhost' if server_type == 'master' else 'ipOfMasterServer' }}"
+          - "  • backupdir=/mnt/diskbackup/backup"
+          - "  • dolibarrdir=/home/admin/wwwroot/dolibarr"
+          - "Comandos ejecutados:"
+          - "  • chown root:admin /etc/sellyoursaas.conf"
+          - "  • chmod g-wx /etc/sellyoursaas.conf"
+          - "  • chmod o-rwx /etc/sellyoursaas.conf"
+          - "  • chown root:admin /etc/sellyoursaas-public.conf"
+          - "  • chmod a+r /etc/sellyoursaas-public.conf"
+          - "  • chmod a-wx /etc/sellyoursaas-public.conf"
+          - "  • mkdir -p /etc/sellyoursaas.d"

@@ -1,0 +1,129 @@
+# =============================================================================
+# Configuración de claves SSH SellYourSaas - Shared (Master y Deploy)
+# Deploy the public key of master admin on deployment admin account
+# /home/admin/.ssh/id_rsa_sellyoursaas
+# =============================================================================
+---
+- name: "Configuración claves SSH SellYourSaas"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === CREAR DIRECTORIO SSH ===
+    - name: "Crear directorio .ssh para usuario admin"
+      file:
+        path: "/home/admin/.ssh"
+        state: directory
+        owner: admin
+        group: admin
+        mode: '0700'
+
+    # === GENERAR/CREAR CLAVES SSH ===
+    - name: "Generar claves SSH SellYourSaas"
+      openssh_keypair:
+        path: "/home/admin/.ssh/id_rsa_sellyoursaas"
+        type: rsa
+        size: 4096
+        owner: admin
+        group: admin
+        mode: '0600'
+        comment: "admin@sellyoursaas-{{ inventory_hostname }}"
+      register: ssh_key_generated
+
+    # === ESTABLECER PERMISOS CORRECTOS ===
+    - name: "Establecer permisos en claves SSH"
+      file:
+        path: "{{ item.path }}"
+        owner: admin
+        group: admin
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "/home/admin/.ssh/id_rsa_sellyoursaas", mode: "0600" }
+        - { path: "/home/admin/.ssh/id_rsa_sellyoursaas.pub", mode: "0644" }
+
+    - name: "Aplicar permisos específicos con chmod"
+      shell: |
+        chmod u+rw /home/admin/.ssh/id_rsa_sellyoursaas*
+        chmod go-rw /home/admin/.ssh/id_rsa_sellyoursaas*
+        chmod a+r /home/admin/.ssh/id_rsa_sellyoursaas.pub
+
+    # === CREAR/ACTUALIZAR ARCHIVO SSH CONFIG ===
+    - name: "Crear o actualizar archivo SSH config"
+      template:
+        src: ssh_config.j2
+        dest: "/home/admin/.ssh/config"
+        owner: admin
+        group: admin
+        mode: '0600'
+        backup: yes
+
+    - name: "Establecer permisos correctos en SSH config"
+      file:
+        path: "/home/admin/.ssh/config"
+        owner: admin
+        group: admin
+        mode: '0600'
+
+    - name: "Aplicar permisos con chmod y chown"
+      shell: |
+        chmod 600 /home/admin/.ssh/config
+        chown admin:admin /home/admin/.ssh/config
+
+    # === VERIFICACIONES ===
+    - name: "Verificar que las claves existen"
+      stat:
+        path: "{{ item }}"
+      register: ssh_keys_check
+      loop:
+        - "/home/admin/.ssh/id_rsa_sellyoursaas"
+        - "/home/admin/.ssh/id_rsa_sellyoursaas.pub"
+        - "/home/admin/.ssh/config"
+
+    - name: "Verificar permisos de las claves"
+      command: ls -la /home/admin/.ssh/id_rsa_sellyoursaas*
+      register: ssh_perms_check
+      changed_when: false
+
+    - name: "Verificar contenido del archivo SSH config"
+      command: cat /home/admin/.ssh/config
+      register: ssh_config_content
+      changed_when: false
+
+    # === MOSTRAR RESUMEN ===
+    - name: "Mostrar resumen de configuración SSH"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN SSH SELLYOURSAAS COMPLETADA ==="
+          - "Servidor: {{ inventory_hostname }}"
+          - "Tipo: {{ server_type }}"
+          - "Archivos creados:"
+          - "  • /home/admin/.ssh/id_rsa_sellyoursaas (0600)"
+          - "  • /home/admin/.ssh/id_rsa_sellyoursaas.pub (0644)"
+          - "  • /home/admin/.ssh/config (0600)"
+          - "Comandos ejecutados:"
+          - "  • chmod u+rw /home/admin/.ssh/id_rsa_sellyoursaas*"
+          - "  • chmod go-rw /home/admin/.ssh/id_rsa_sellyoursaas*"
+          - "  • chmod a+r /home/admin/.ssh/id_rsa_sellyoursaas.pub"
+          - "  • chmod 600 /home/admin/.ssh/config"
+          - "  • chown admin:admin /home/admin/.ssh/config"
+          - "{{ '=' * 50 }}"
+          - "IMPORTANTE - PASOS MANUALES PARA DEPLOYMENT:"
+          - "{{ '=' * 50 }}"
+          - "1. Copiar claves del Master a cada servidor Deploy:"
+          - "   scp /home/admin/.ssh/id_rsa_sellyoursaas* deploy-server:/home/admin/.ssh/"
+          - "2. Verificar permisos en deployment servers:"
+          - "   chmod u+rw /home/admin/.ssh/id_rsa_sellyoursaas*"
+          - "   chmod go-rw /home/admin/.ssh/id_rsa_sellyoursaas*"
+          - "   chmod a+r /home/admin/.ssh/id_rsa_sellyoursaas.pub"
+          - "3. Configuración SSH config incluye:"
+          - "   • Host {{ deployment_server_ip | default('ip.server.deployment') }}"
+          - "   • Host github.com"
+          - "   • IdentityFile /home/admin/.ssh/id_rsa_sellyoursaas"
+          - "Permisos aplicados:"
+          - "{{ ssh_perms_check.stdout_lines | default(['Error verificando permisos']) }}"

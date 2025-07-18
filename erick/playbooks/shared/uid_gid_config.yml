@@ -1,0 +1,81 @@
+# =============================================================================
+# Configuración UID/GID para SellYourSaas (SOLO DEPLOYMENT SERVERS)
+# Max size increase UID - Solo para servidores de deployment
+# =============================================================================
+---
+- name: "Configurar UID/GID para instancias SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CONFIGURACIÓN /etc/login.defs ===
+    - name: "Configurar UID/GID máximos en /etc/login.defs"
+      lineinfile:
+        path: /etc/login.defs
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        backup: yes
+      loop:
+        - { regexp: '^UID_MIN', line: 'UID_MIN                  1000' }
+        - { regexp: '^UID_MAX', line: 'UID_MAX                 500000' }
+        - { regexp: '^GID_MIN', line: 'GID_MIN                  1000' }
+        - { regexp: '^GID_MAX', line: 'GID_MAX                 500000' }
+      register: login_defs_config
+
+    # === CONFIGURACIÓN APACHE MPM_ITK ===
+    - name: "Verificar si existe /etc/apache2/mods-enabled/mpm_itk.conf"
+      stat:
+        path: /etc/apache2/mods-enabled/mpm_itk.conf
+      register: mpm_itk_conf
+
+    - name: "Verificar si existe /etc/apache2/conf-enabled/security.conf"
+      stat:
+        path: /etc/apache2/conf-enabled/security.conf
+      register: security_conf
+
+    - name: "Configurar LimitUIDRange/LimitGIDRange en mpm_itk.conf"
+      blockinfile:
+        path: /etc/apache2/mods-enabled/mpm_itk.conf
+        block: |
+          # SellYourSaas UID/GID Configuration
+          LimitUIDRange 1 500000
+          LimitGIDRange 1 500000
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS UID/GID"
+        create: yes
+        backup: yes
+      when: mpm_itk_conf.stat.exists or not security_conf.stat.exists
+      notify: restart apache2
+
+    - name: "Configurar LimitUIDRange/LimitGIDRange en security.conf"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/security.conf
+        block: |
+          # SellYourSaas UID/GID Configuration
+          LimitUIDRange 1 500000
+          LimitGIDRange 1 500000
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS UID/GID"
+        backup: yes
+      when: security_conf.stat.exists and not mpm_itk_conf.stat.exists
+      notify: restart apache2
+
+    # === VERIFICACIÓN ===
+    - name: "Verificar configuración de login.defs"
+      command: grep -E "^(UID_|GID_)" /etc/login.defs
+      register: login_defs_check
+      changed_when: false
+
+    - name: "Mostrar configuración aplicada"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN UID/GID APLICADA ==="
+          - "Configuración /etc/login.defs:"
+          - "{{ login_defs_check.stdout_lines }}"
+          - "Archivo Apache utilizado: {{ '/etc/apache2/mods-enabled/mpm_itk.conf' if mpm_itk_conf.stat.exists else '/etc/apache2/conf-enabled/security.conf' }}"
+          - "Límites configurados: LimitUIDRange 1 500000, LimitGIDRange 1 500000"
+
+  handlers:
+    - name: restart apache2
+      service:
+        name: apache2
+        state: restarted

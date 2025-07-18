@@ -1,0 +1,215 @@
+# =============================================================================
+# Configuración General Apache SellYourSaas
+# Apache web server configuration
+# =============================================================================
+---
+- name: "Configuración general Apache SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR VERSIÓN DE PHP ===
+    - name: "Detectar versión de PHP instalada"
+      command: php -v
+      register: php_version_output
+      changed_when: false
+
+    - name: "Extraer versión de PHP"
+      set_fact:
+        php_version: "{{ php_version_output.stdout.split(' ')[1].split('.')[0] }}.{{ php_version_output.stdout.split(' ')[1].split('.')[1] }}"
+
+    # === HABILITAR MÓDULOS DE APACHE ===
+    - name: "Habilitar módulos Apache básicos"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - actions
+        - alias
+        - asis
+        - auth_basic
+        - auth_digest
+        - authn_anon
+        - authn_dbd
+        - authn_dbm
+        - authn_file
+        - authz_dbm
+        - authz_groupfile
+        - authz_host
+        - authz_owner
+        - authz_user
+        - autoindex
+        - cache
+        - cgid
+        - cgi
+        - charset_lite
+        - dav_fs
+        - dav
+        - dav_lock
+        - dbd
+        - deflate
+        - dir
+        - dump_io
+        - env
+        - expires
+        - ext_filter
+        - file_cache
+        - filter
+        - headers
+        - http2
+        - ident
+        - include
+        - info
+        - ldap
+        - mem_cache
+        - mime
+        - mime_magic
+        - negotiation
+        - reqtimeout
+        - rewrite
+        - setenvif
+        - speling
+        - ssl
+        - status
+        - substitute
+        - suexec
+        - unique_id
+        - userdir
+        - usertrack
+        - vhost_alias
+        - setenvif
+        - speling
+        - ssl
+        - status
+        - substitute
+        - suexec
+        - unique_id
+        - userdir
+        - usertrack
+        - vhost_alias
+      notify: restart apache2
+      ignore_errors: yes
+
+    - name: "Habilitar módulos MPM"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - mpm_itk
+        - mpm_prefork
+      notify: restart apache2
+      ignore_errors: yes
+
+    - name: "Habilitar módulo PHP"
+      apache2_module:
+        name: "php{{ php_version }}"
+        state: present
+      notify: restart apache2
+      ignore_errors: yes
+
+    # === DESHABILITAR MÓDULOS NO ÚTILES ===
+    - name: "Deshabilitar módulos Apache no útiles"
+      apache2_module:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - auth_digest
+        - authn_anon
+        - asis
+        - suexec
+        - userdir
+        - usertrack
+        - authn_dbd
+        - dbd
+        - ident
+        - mime_magic
+        - speling
+      notify: restart apache2
+      ignore_errors: yes
+
+    - name: "Deshabilitar módulo mcrypt (PHP 8.1+)"
+      apache2_module:
+        name: mcrypt
+        state: absent
+      when: php_version is version('8.1', '>=')
+      notify: restart apache2
+      ignore_errors: yes
+
+    # === HABILITAR CONFIGURACIONES DE APACHE ===
+    - name: "Habilitar configuraciones Apache"
+      command: "a2enconf {{ item }}"
+      loop:
+        - charset
+        - localized-error-pages
+        - other-vhosts-access-log
+        - security
+      notify: restart apache2
+      changed_when: false
+      ignore_errors: yes
+
+    # === CONFIGURAR APACHE2.CONF ===
+    - name: "Agregar configuración para virtual hosts SellYourSaas"
+      blockinfile:
+        path: /etc/apache2/apache2.conf
+        block: |
+          # Include virtual host for sellyoursaas instances:
+          IncludeOptional sellyoursaas-enabled/*.conf
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS VHOSTS"
+        backup: yes
+      notify: restart apache2
+
+    # === CONFIGURAR LOGS DE ERROR ===
+    - name: "Configurar formato de logs de error"
+      blockinfile:
+        path: /etc/apache2/conf-enabled/other-vhosts-access-log.conf
+        block: |
+          ErrorLogFormat "[%v] [%{u}t] [%-m:%l] [pid %P:tid %T] %7F: %E: [client\ %a] %M% ,\ referer\ %{Referer}i"
+          ErrorLog "|/usr/bin/rotatelogs -t ${APACHE_LOG_DIR}/other_vhosts_error.log 1G"
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS ERROR LOGS"
+        backup: yes
+      notify: restart apache2
+
+    # === CONFIGURAR SYSTEMD PARA APACHE ===
+    - name: "Verificar configuración PrivateTmp en apache2.service"
+      lineinfile:
+        path: /etc/systemd/system/multi-user.target.wants/apache2.service
+        regexp: '^PrivateTmp='
+        line: 'PrivateTmp=false'
+        backup: yes
+      register: systemd_config
+      notify: 
+        - reload systemd
+        - restart apache2
+
+    # === VERIFICACIONES ===
+    - name: "Verificar módulos Apache habilitados"
+      command: apache2ctl -M
+      register: apache_modules_check
+      changed_when: false
+
+    - name: "Verificar configuración Apache"
+      command: apache2ctl -t
+      register: apache_config_check
+      changed_when: false
+
+    - name: "Mostrar resumen de configuración"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN APACHE COMPLETADA ==="
+          - "Versión PHP detectada: {{ php_version }}"
+          - "Módulos habilitados: {{ apache_modules_check.stdout_lines | length }} módulos"
+          - "Configuración Apache: {{ 'VÁLIDA' if apache_config_check.rc == 0 else 'ERROR' }}"
+          - "Configuración SystemD: {{ 'ACTUALIZADA' if systemd_config.changed else 'SIN CAMBIOS' }}"
+          - "Logs de error: Configurados con rotación automática"
+          - "Virtual hosts SellYourSaas: Configurados en sellyoursaas-enabled/"
+
+  handlers:
+    - name: restart apache2
+      service:
+        name: apache2
+        state: restarted
+
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

@@ -1,0 +1,150 @@
+# =============================================================================
+# Instalación y Configuración Unix Watchdog SellYourSaas
+# Installation of unix watchdog (optional)
+# =============================================================================
+---
+- name: "Instalación y configuración Unix Watchdog SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === VERIFICAR SI WATCHDOG YA ESTÁ INSTALADO ===
+    - name: "Verificar si watchdog está instalado"
+      package_facts:
+        manager: "auto"
+
+    - name: "Mostrar estado de watchdog"
+      debug:
+        msg: "Watchdog está {{ 'instalado' if 'watchdog' in ansible_facts.packages else 'no instalado' }}"
+
+    # === INSTALAR WATCHDOG ===
+    - name: "Instalar paquete watchdog"
+      apt:
+        name: watchdog
+        state: present
+        update_cache: yes
+      register: watchdog_install
+
+    # === VERIFICAR DIRECTORIO DE SCRIPTS ===
+    - name: "Verificar si existe directorio de scripts SellYourSaas"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts
+      register: scripts_dir
+
+    - name: "Advertir si no existe directorio de scripts"
+      debug:
+        msg: 
+          - "ADVERTENCIA: El directorio /home/admin/wwwroot/dolibarr_sellyoursaas/scripts no existe"
+          - "El enlace simbólico a repair.ksh no se puede crear"
+          - "Asegúrate de ejecutar primero la obtención de archivos Dolibarr/SellYourSaas"
+      when: not scripts_dir.stat.exists
+
+    # === CREAR ENLACE SIMBÓLICO AL SCRIPT REPAIR ===
+    - name: "Crear enlace simbólico al script repair.ksh"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/repair.ksh
+        dest: /usr/sbin/repair
+        state: link
+        force: yes
+      when: scripts_dir.stat.exists
+      register: repair_link
+
+    # === CONFIGURAR WATCHDOG ===
+    - name: "Configurar watchdog básico"
+      blockinfile:
+        path: /etc/watchdog.conf
+        block: |
+          # =============================================================================
+          # Configuración Watchdog para SellYourSaas
+          # =============================================================================
+          
+          # Intervalo de watchdog (segundos)
+          interval = 10
+          
+          # Timeout antes de reiniciar (segundos)
+          timeout = 60
+          
+          # Reiniciar cuando la carga promedio es muy alta
+          # (esto ejecutará el script repair antes de reiniciar)
+          max-load-1 = 24
+          max-load-5 = 18
+          max-load-15 = 12
+          
+          # Reiniciar cuando la memoria libre es muy baja (MB)
+          min-memory = 1
+          
+          # Script de reparación a ejecutar antes de reiniciar
+          repair-binary = /usr/sbin/repair
+          
+          # Configuración del dispositivo watchdog
+          # watchdog-device = /dev/watchdog
+          
+          # Logs
+          log-dir = /var/log/watchdog
+          
+          # Permitir que el watchdog se active
+          realtime = yes
+          priority = 1
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS WATCHDOG"
+        backup: yes
+      register: watchdog_config
+
+    # === CREAR DIRECTORIO DE LOGS ===
+    - name: "Crear directorio de logs del watchdog"
+      file:
+        path: /var/log/watchdog
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # === CONFIGURAR SERVICIO WATCHDOG ===
+    - name: "Habilitar servicio watchdog"
+      systemd:
+        name: watchdog
+        enabled: yes
+        state: started
+      register: watchdog_service
+      when: watchdog_install.changed or watchdog_config.changed
+
+    # === VERIFICAR ESTADO DEL SERVICIO ===
+    - name: "Verificar estado del servicio watchdog"
+      command: systemctl status watchdog
+      register: watchdog_status
+      changed_when: false
+      failed_when: false
+
+    # === VERIFICAR CONFIGURACIÓN ===
+    - name: "Verificar configuración del watchdog"
+      command: watchdog -t
+      register: watchdog_test
+      changed_when: false
+      failed_when: false
+
+    # === MOSTRAR INFORMACIÓN COMPLETA ===
+    - name: "Mostrar información completa del watchdog"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN UNIX WATCHDOG COMPLETADA ==="
+          - "Instalación: {{ 'Nueva instalación' if watchdog_install.changed else 'Ya estaba instalado' }}"
+          - "Configuración: {{ 'Actualizada' if watchdog_config.changed else 'Sin cambios' }}"
+          - "Enlace repair.ksh: {{ 'Creado' if repair_link.changed else ('No creado - directorio no existe' if not scripts_dir.stat.exists else 'Ya existía') }}"
+          - "Servicio: {{ 'Iniciado' if watchdog_service.changed else 'Ya ejecutándose' }}"
+          - "Estado del servicio: {{ 'Activo' if 'active' in watchdog_status.stdout else 'Inactivo' }}"
+          - "Directorio logs: /var/log/watchdog"
+          - "Archivo configuración: /etc/watchdog.conf"
+          - ""
+          - "=== COMANDOS DISPONIBLES ==="
+          - "  • Ver estado: systemctl status watchdog"
+          - "  • Deshabilitar: systemctl disable watchdog"
+          - "  • Habilitar: systemctl enable watchdog"
+          - "  • Parar: systemctl stop watchdog"
+          - "  • Iniciar: systemctl start watchdog"
+          - ""
+          - "=== FUNCIONAMIENTO ==="
+          - "Cuando la carga sea muy alta o la memoria muy baja:"
+          - "  1. El watchdog ejecutará /usr/sbin/repair (repair.ksh)"
+          - "  2. El script trackeará el estado en /var/log/repair*.log"
+          - "  3. El servidor se reiniciará automáticamente"
+          - "  NOTA: Esto no debería ocurrir nunca en condiciones normales"

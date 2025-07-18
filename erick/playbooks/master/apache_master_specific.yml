@@ -1,0 +1,131 @@
+# =============================================================================
+# Configuración Apache Master SellYourSaas
+# Configuración específica para servidor maestro
+# =============================================================================
+---
+- name: "Configuración Apache Master SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CREAR ARCHIVO .htpasswd ===
+    - name: "Crear archivo .htpasswd para autenticación"
+      htpasswd:
+        path: /etc/apache2/.htpasswd
+        name: "{{ master_server.admin_user | default('admin') }}"
+        password: "{{ master_server.admin_password }}"
+        owner: root
+        group: www-data
+        mode: '0640'
+        state: present
+
+    # === CREAR DIRECTORIO PARA CONFIGURACIONES ADICIONALES ===
+    - name: "Crear directorio para configuraciones de IP permitidas"
+      file:
+        path: /etc/sellyoursaas.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # === CREAR VIRTUAL HOST ADMIN ===
+    - name: "Crear virtual host admin.{{ master_server.domain }}"
+      template:
+        src: admin_vhost.conf.j2
+        dest: "/etc/apache2/sites-available/admin.{{ master_server.domain }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      notify: restart apache2
+
+    # === CREAR VIRTUAL HOST MYACCOUNT ===
+    - name: "Crear virtual host myaccount.{{ master_server.domain }}"
+      template:
+        src: myaccount_vhost.conf.j2
+        dest: "/etc/apache2/sites-available/myaccount.{{ master_server.domain }}.conf"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+      notify: restart apache2
+
+    # === HABILITAR VIRTUAL HOSTS ===
+    - name: "Habilitar virtual host admin"
+      command: "a2ensite admin.{{ master_server.domain }}"
+      notify: restart apache2
+      changed_when: false
+
+    - name: "Habilitar virtual host myaccount"
+      command: "a2ensite myaccount.{{ master_server.domain }}"
+      notify: restart apache2
+      changed_when: false
+
+    # === CREAR EJEMPLO DE CONFIGURACIÓN DE IP PERMITIDAS ===
+    - name: "Crear ejemplo de configuración de IPs permitidas"
+      copy:
+        content: |
+          # Ejemplo de configuración de IPs permitidas para admin
+          # Descomenta y modifica las líneas siguientes según necesites:
+          # 
+          # Permitir IP específica:
+          # Require ip 192.168.1.100
+          # 
+          # Permitir rango de IPs:
+          # Require ip 192.168.1.0/24
+          # 
+          # Permitir múltiples IPs:
+          # Require ip 192.168.1.100
+          # Require ip 192.168.1.101
+          # Require ip 10.0.0.0/8
+          #
+          # Para activar, renombra este archivo quitando el .example
+          # y reinicia Apache
+        dest: /etc/sellyoursaas.d/admin-allowed-ip.conf.example
+        owner: root
+        group: root
+        mode: '0644'
+
+    # === VERIFICAR CONFIGURACIÓN ===
+    - name: "Verificar sintaxis de configuración Apache"
+      command: apache2ctl configtest
+      register: apache_configtest
+      changed_when: false
+
+    - name: "Verificar virtual hosts disponibles"
+      find:
+        paths: /etc/apache2/sites-available
+        patterns: "*.{{ master_server.domain }}.conf"
+      register: master_vhosts
+
+    - name: "Verificar virtual hosts habilitados"
+      find:
+        paths: /etc/apache2/sites-enabled
+        patterns: "*.{{ master_server.domain }}.conf"
+      register: master_vhosts_enabled
+
+    - name: "Verificar archivo .htpasswd"
+      stat:
+        path: /etc/apache2/.htpasswd
+      register: htpasswd_check
+
+    - name: "Mostrar resumen de configuración Master"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN APACHE MASTER COMPLETADA ==="
+          - "Configuración Apache: {{ 'VÁLIDA' if apache_configtest.rc == 0 else 'ERROR - ' + apache_configtest.stderr }}"
+          - "Virtual hosts creados: {{ master_vhosts.files | length }}"
+          - "Virtual hosts habilitados: {{ master_vhosts_enabled.files | length }}"
+          - "Archivo .htpasswd: {{ 'CREADO' if htpasswd_check.stat.exists else 'ERROR' }}"
+          - "Directorio configuraciones: /etc/sellyoursaas.d/"
+          - "URLs configuradas:"
+          - "  - http://admin.{{ master_server.domain }} (requiere autenticación)"
+          - "  - http://myaccount.{{ master_server.domain }} (dashboard clientes)"
+          - "NOTA: Configurar certificados SSL posteriormente con certbot"
+
+  handlers:
+    - name: restart apache2
+      service:
+        name: apache2
+        state: restarted

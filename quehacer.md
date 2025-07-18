@@ -73,6 +73,8 @@ Test spamassassin | test_spamassassin | ✅  | ✅ | -
 Test and setup of ClamAV | test_ClamAV | ✅ | ✅ | -
 Afick | Afick | ✅  | ✅ | -
 Setup of cpulimit (optional) | cpulimit | ✅  | ✅ | -
+
+# ====== ↑ VERIFICADO SOLO PARA MASTER Y MASTER + DEPLOY ↑ ======
 Setup of /etc/security/limits.conf (optional)| limits | ⛔ | ✅| -
 Setup of Postfix | na | na | na | Este paso lo hacemos con el proveedor externo
 Setup of Mysql or Mariadb bind-address | Mariadb_bind-address | ✅ | ⛔| -

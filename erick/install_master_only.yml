@@ -38,6 +38,11 @@
 - name: "FASE 2.1: Configuración SSH y usuarios en Master"
   import_playbook: playbooks/master/ssh_sudo.yml
 
+- name: "FASE 2.1.1: Configuración claves SSH SellYourSaas"
+  import_playbook: playbooks/shared/ssh_keys_sellyoursaas.yml
+  vars:
+    target_hosts: master
+
 - name: "FASE 2.2: Configuración NFS Server en Master"
   import_playbook: playbooks/master/nfs_master.yml
 
@@ -47,15 +52,36 @@
     target: master
 
 # TODO: Configuración de PHP-FPM y ajustes específicos
-- name: "FASE 2.4: Configuración Apache en Master"
+- name: "FASE 2.4: Configuración Apache General en Master"
+  import_playbook: playbooks/shared/apache_config.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.4.1: Configuración Apache Master específico"
+  import_playbook: playbooks/master/apache_master_specific.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.4.2: Configuración Apache Master (Legacy)"
   import_playbook: playbooks/master/apache_master.yml
   vars:
     target: master
+
+- name: "FASE 2.4.3: Configuración del Filesystem de Logs (Opcional)"
+  import_playbook: playbooks/shared/logs_filesystem.yml
+  vars:
+    target_hosts: master
+
 # TODO: Configuración de Mariadb
 - name: "FASE 2.5: Configuración MariaDB en Master"
   import_playbook: playbooks/master/mariadb_master.yml
   vars:
     target: master
+
+- name: "FASE 2.5.1: Configuración Timeout MariaDB"
+  import_playbook: playbooks/shared/mariadb_timeout.yml
+  vars:
+    target_hosts: master
 
 - name: "FASE 2.6: Configuración Fail2ban en Master"
   import_playbook: playbooks/master/fail2ban_master.yml
@@ -65,10 +91,52 @@
   vars:
     target: master
 
-- name: "FASE 2.8: Instalación Dolibarr en Master"
+- name: "FASE 2.8: Obtención de archivos Dolibarr y SellYourSaas"
+  import_playbook: playbooks/shared/dolibarr_sources.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.1: Instalación Unix Watchdog (Opcional)"
+  import_playbook: playbooks/shared/unix_watchdog.yml
+  vars:
+    target_hosts: master
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.2: Test SpamAssassin Configuration"
+  import_playbook: playbooks/shared/test_spamassassin.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.3: Test and Setup of ClamAV"
+  import_playbook: playbooks/shared/test_clamav.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.4: Installation of Afick"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.5: Setup of CPUlimit (Optional)"
+  import_playbook: playbooks/shared/cpulimit.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.6: Instalación Dolibarr en Master"
   import_playbook: playbooks/master/dolibarr_master.yml
   vars:
     target: master
+
+- name: "FASE 2.8.7: Creación de Directorios de Trabajo"
+  import_playbook: playbooks/shared/working_directories.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.8.8: Configuración de archivos SellYourSaas"
+  import_playbook: playbooks/shared/sellyoursaas_config.yml
+  vars:
+    target_hosts: master
 
 - name: "FASE 2.9: Configuración Logrotate en Master"
   import_playbook: playbooks/shared/logrotate.yml
@@ -80,15 +148,20 @@
   vars:
     target: master
 
-- name: "FASE 2.11: Configuración alias básicos en Master"
+- name: "FASE 2.11: Configuración eliminación info login en Master"
+  import_playbook: playbooks/shared/del_info_login.yml
+  vars:
+    target_hosts: master
+
+- name: "FASE 2.12: Configuración alias básicos en Master"
   import_playbook: playbooks/master/master_alias.yml
 
-- name: "FASE 2.12: Configuración AFICK en Master"
+- name: "FASE 2.13: Configuración AFICK en Master"
   import_playbook: playbooks/shared/afick.yml
   vars:
     target: master
 
-- name: "FASE 2.13: Configuración Watchdog en Master"
+- name: "FASE 2.14: Configuración Watchdog en Master"
   import_playbook: playbooks/master/watchdog_master.yml
 
 # =============================================================================

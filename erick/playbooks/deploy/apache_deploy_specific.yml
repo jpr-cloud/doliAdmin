@@ -1,0 +1,173 @@
+# =============================================================================
+# Configuración Apache Deploy SellYourSaas
+# Configuración específica para servidores de deployment
+# =============================================================================
+---
+- name: "Configuración Apache Deploy SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CREAR DIRECTORIOS PARA VIRTUAL HOSTS ===
+    - name: "Crear directorios para virtual hosts de instancias"
+      file:
+        path: "/etc/apache2/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - sellyoursaas-available
+        - sellyoursaas-online
+        - sellyoursaas-offline
+
+    - name: "Crear enlace simbólico sellyoursaas-enabled"
+      file:
+        src: /etc/apache2/sellyoursaas-online
+        dest: /etc/apache2/sellyoursaas-enabled
+        state: link
+        force: yes
+
+    # === VERIFICAR CONFIGURACIÓN SYSTEMD ===
+    - name: "Verificar si existe configuración personalizada de apache2.service"
+      stat:
+        path: /etc/systemd/system/multi-user.target.wants/apache2.service
+      register: apache_service_custom
+
+    - name: "Crear configuración personalizada de apache2.service si no existe"
+      copy:
+        src: /lib/systemd/system/apache2.service
+        dest: /etc/systemd/system/multi-user.target.wants/apache2.service
+        remote_src: yes
+        backup: yes
+      when: not apache_service_custom.stat.exists
+
+    - name: "Configurar PrivateTmp=false en apache2.service"
+      lineinfile:
+        path: /etc/systemd/system/multi-user.target.wants/apache2.service
+        regexp: '^PrivateTmp='
+        line: 'PrivateTmp=false'
+        insertafter: '^\[Service\]'
+        backup: yes
+      register: systemd_config
+      notify:
+        - reload systemd
+        - restart apache2
+
+    # === CREAR TEMPLATE BÁSICO PARA INSTANCIAS ===
+    - name: "Crear template básico para virtual hosts de instancias"
+      copy:
+        content: |
+          # =============================================================================
+          # Template para Virtual Hosts de instancias SellYourSaas
+          # Este archivo es un template - NO debe ser usado directamente
+          # =============================================================================
+          # 
+          # Para crear un virtual host para una instancia:
+          # 1. Copiar este template
+          # 2. Reemplazar INSTANCE_NAME con el nombre de la instancia
+          # 3. Reemplazar INSTANCE_DOMAIN con el dominio de la instancia
+          # 4. Ajustar paths según sea necesario
+          # 5. Activar el virtual host
+          #
+          # Ejemplo:
+          # cp /etc/apache2/sellyoursaas-available/instance-template.conf \
+          #    /etc/apache2/sellyoursaas-available/myinstance.conf
+          # 
+          # sed -i 's/INSTANCE_NAME/myinstance/g' \
+          #    /etc/apache2/sellyoursaas-available/myinstance.conf
+          # 
+          # ln -s /etc/apache2/sellyoursaas-available/myinstance.conf \
+          #       /etc/apache2/sellyoursaas-online/myinstance.conf
+          #
+          
+          <VirtualHost *:80>
+              ServerName INSTANCE_DOMAIN
+              DocumentRoot {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/htdocs
+              
+              ErrorLog {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/logs/error.log
+              CustomLog {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/logs/access.log combined
+              
+              # Configuración de seguridad PHP
+              php_admin_value open_basedir {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME:/tmp:/usr/share/GeoIP
+              php_admin_value upload_tmp_dir {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/tmp
+              php_admin_value session.save_path {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/tmp
+              
+              # Configuración de directorio principal
+              <Directory {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/htdocs>
+                  AllowOverride FileInfo Options
+                  Options -Indexes +FollowSymLinks
+                  Require all granted
+              </Directory>
+              
+              # Configuración para documentos
+              <Directory {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/documents>
+                  AllowOverride None
+                  Options -Indexes
+                  Require all denied
+              </Directory>
+              
+              # Alias para documentos públicos si es necesario
+              # Alias /documents {{ directories.instances | default('/home/jail/home') }}/INSTANCE_NAME/documents
+              
+              # Configuración de expiración para archivos estáticos
+              ExpiresActive On
+              ExpiresByType image/x-icon A2592000
+              ExpiresByType image/gif A2592000
+              ExpiresByType image/png A2592000
+              ExpiresByType image/jpeg A2592000
+              ExpiresByType text/css A2592000
+              ExpiresByType text/javascript A2592000
+              ExpiresByType application/x-javascript A2592000
+              ExpiresByType application/javascript A2592000
+              
+              # Redirección automática a HTTPS (opcional)
+              # RewriteEngine On
+              # RewriteCond %{SERVER_NAME} =INSTANCE_DOMAIN
+              # RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+          </VirtualHost>
+        dest: /etc/apache2/sellyoursaas-available/instance-template.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+    # === VERIFICACIONES ===
+    - name: "Verificar estructura de directorios creada"
+      find:
+        paths: /etc/apache2
+        patterns: "sellyoursaas-*"
+        file_type: directory
+      register: sellyoursaas_dirs
+
+    - name: "Verificar enlace simbólico sellyoursaas-enabled"
+      stat:
+        path: /etc/apache2/sellyoursaas-enabled
+      register: sellyoursaas_enabled
+
+    - name: "Verificar configuración systemd"
+      command: systemctl show apache2 -p PrivateTmp
+      register: private_tmp_check
+      changed_when: false
+
+    - name: "Mostrar resumen de configuración Deploy"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN APACHE DEPLOY COMPLETADA ==="
+          - "Directorios creados: {{ sellyoursaas_dirs.files | length }} directorios"
+          - "Enlace sellyoursaas-enabled: {{ 'CREADO' if sellyoursaas_enabled.stat.islnk else 'ERROR' }}"
+          - "Template de instancias: Creado en sellyoursaas-available/"
+          - "Configuración SystemD: {{ 'ACTUALIZADA' if systemd_config.changed else 'SIN CAMBIOS' }}"
+          - "PrivateTmp: {{ private_tmp_check.stdout }}"
+          - "Estructura lista para deployment de instancias"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: restart apache2
+      service:
+        name: apache2
+        state: restarted

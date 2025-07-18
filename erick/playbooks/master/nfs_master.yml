@@ -1,67 +1,140 @@
 # =============================================================================
-# Configuración NFS Server en Master
+# Configuración NFS Server en Master - SellYourSaas
+# Installing the nfs share
 # =============================================================================
 ---
-- name: "Configuración NFS Server"
+- name: "Configuración NFS Server para SellYourSaas"
   hosts: master
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Crear directorio de documentos de Dolibarr"
+    # === CREAR DIRECTORIO DE DOCUMENTOS SELLYOURSAAS ===
+    - name: "Crear directorio de documentos de Dolibarr/SellYourSaas"
       file:
-        path: "{{ directories.documents }}/sellyoursaas/spam"
+        path: "/home/admin/wwwroot/dolibarr_documents/sellyoursaas"
         state: directory
-        owner: "{{ system_users.admin }}"
+        owner: admin
         group: admin
         mode: '0755'
         recurse: yes
 
-    - name: "Establecer permisos para dolibarr_documents"
-      file:
-        path: "{{ directories.documents }}"
-        owner: "{{ system_users.admin }}"
-        group: admin
-        recurse: yes
-
+    # === INSTALAR NFS SERVER ===
     - name: "Instalar nfs-kernel-server"
       package:
         name: nfs-kernel-server
         state: present
+        update_cache: yes
 
-    - name: "Configurar /etc/exports para NFS"
-      blockinfile:
-        path: /etc/exports
-        create: yes
-        block: |
-          # NFS exports for SellYourSaas
-          {{ nfs.export_path }} {{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)
-        marker: "# {mark} ANSIBLE MANAGED NFS EXPORTS"
+    # === CONFIGURAR /etc/exports ===
+    - name: "Crear configuración /etc/exports"
+      template:
+        src: exports.j2
+        dest: /etc/exports
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
       notify: restart nfs-kernel-server
 
-    - name: "Configurar opciones de nfs-kernel-server"
-      blockinfile:
+    # === CONFIGURAR PUERTO FIJO PARA MOUNTD ===
+    - name: "Configurar puerto fijo para mountd en /etc/default/nfs-kernel-server"
+      lineinfile:
         path: /etc/default/nfs-kernel-server
-        block: |
-          # SellYourSaas NFS Configuration
-          RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"
-        marker: "# {mark} ANSIBLE MANAGED NFS OPTIONS"
+        regexp: '^RPCMOUNTDOPTS='
+        line: 'RPCMOUNTDOPTS="--port 33333 --no-nfs-version 3"'
+        backup: yes
       notify: restart nfs-kernel-server
 
-    - name: "Habilitar y iniciar nfs-kernel-server"
+    # === COMENTAR LÍNEA ANTIGUA SI EXISTE ===
+    - name: "Comentar configuración antigua de RPCMOUNTDOPTS"
+      replace:
+        path: /etc/default/nfs-kernel-server
+        regexp: '^(RPCMOUNTDOPTS=--manage-gids)$'
+        replace: '#\1'
+        backup: yes
+      notify: restart nfs-kernel-server
+
+    # === REINICIAR SERVICIOS ===
+    - name: "Reiniciar service nfs-config"
+      systemd:
+        name: nfs-config
+        state: restarted
+      ignore_errors: yes
+
+    - name: "Reiniciar service nfs-kernel-server"
+      systemd:
+        name: nfs-kernel-server
+        state: restarted
+
+    # === HABILITAR SERVICIO ===
+    - name: "Habilitar nfs-kernel-server"
       systemd:
         name: nfs-kernel-server
         enabled: yes
         state: started
 
-    - name: "Validar configuración NFS"
-      command: exportfs -v
+    # === VALIDAR CONFIGURACIÓN ===
+    - name: "Aplicar exportaciones NFS"
+      command: exportfs -v -a
+      register: nfs_exports_add
+      changed_when: false
+
+    - name: "Validar exportaciones NFS"
+      command: exportfs
       register: nfs_exports
       changed_when: false
 
-    - name: "Mostrar exportaciones NFS"
+    - name: "Verificar información de RPC"
+      command: rpcinfo -p
+      register: rpc_info
+      changed_when: false
+
+    - name: "Verificar estado del servicio NFS"
+      command: systemctl status nfs-kernel-server
+      register: nfs_status
+      changed_when: false
+
+    # === VERIFICAR PUERTOS ===
+    - name: "Verificar puerto NFS 2049"
+      command: ss -ultpn | grep 2049
+      register: nfs_port_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Verificar puerto mountd 33333"
+      command: ss -ultpn | grep 33333
+      register: mountd_port_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Verificar puerto portmapper 111"
+      command: ss -ultpn | grep 111
+      register: portmapper_check
+      changed_when: false
+      ignore_errors: yes
+
+    # === MOSTRAR RESUMEN ===
+    - name: "Mostrar resumen de configuración NFS"
       debug:
-        var: nfs_exports.stdout_lines
+        msg:
+          - "=== CONFIGURACIÓN NFS SERVER COMPLETADA ==="
+          - "Directorio exportado: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - "Puerto mountd: 33333"
+          - "Puerto NFS: 2049"
+          - "Puerto portmapper: 111"
+          - "Configuración: ro,no_root_squash,sync,no_subtree_check"
+          - "Servidores deployment autorizados: {{ deployment_servers | default(['i.p.deployment.server1']) }}"
+          - "Comandos ejecutados:"
+          - "  • apt install nfs-kernel-server"
+          - "  • exportfs -v -a"
+          - "  • systemctl enable nfs-kernel-server"
+          - "  • systemctl restart nfs-kernel-server"
+          - "Verificación:"
+          - "  • exportfs = {{ nfs_exports.stdout_lines | default(['No exports']) }}"
+          - "  • NFS puerto 2049: {{ 'OK' if nfs_port_check.rc == 0 else 'ERROR' }}"
+          - "  • mountd puerto 33333: {{ 'OK' if mountd_port_check.rc == 0 else 'ERROR' }}"
+          - "  • portmapper puerto 111: {{ 'OK' if portmapper_check.rc == 0 else 'ERROR' }}"
 
   handlers:
     - name: restart nfs-kernel-server

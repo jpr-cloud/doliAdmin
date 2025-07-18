@@ -1,0 +1,86 @@
+# =============================================================================
+# Eliminación de archivos de información en login
+# =============================================================================
+---
+- name: "Eliminar archivos de información al login"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === ELIMINACIÓN DE ARCHIVOS DE INFORMACIÓN SEGÚN DOCUMENTACIÓN ===
+    - name: "Eliminar archivos de información MOTD específicos"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/update-motd.d/00-header
+        - /etc/update-motd.d/20-runabove
+        - /etc/update-motd.d/50-landscape-sysinfo
+        - /etc/update-motd.d/50-motd-news
+        - /etc/update-motd.d/90-updates-available
+        - /etc/update-motd.d/91-updates-available
+        - /etc/update-motd.d/92-updates-available
+        - /etc/update-motd.d/93-updates-available
+        - /etc/update-motd.d/94-updates-available
+        - /etc/update-motd.d/95-updates-available
+        - /etc/update-motd.d/96-updates-available
+        - /etc/update-motd.d/97-updates-available
+        - /etc/update-motd.d/98-updates-available
+        - /etc/update-motd.d/99-updates-available
+        - /etc/update-motd.d/92-unattended-upgrades
+      ignore_errors: yes
+
+    # === EJECUTAR COMANDO ESPECÍFICO DE LA DOCUMENTACIÓN ===
+    - name: "Ejecutar comando rm para eliminar archivos de información (según documentación)"
+      shell: |
+        rm -f /etc/update-motd.d/00-header /etc/update-motd.d/20-runabove
+        rm -f /etc/update-motd.d/50-landscape-sysinfo /etc/update-motd.d/50-motd-news
+        rm -f /etc/update-motd.d/9*-update*-available /etc/update-motd.d/92-unattended-upgrades
+      ignore_errors: yes
+      register: rm_motd_result
+
+    - name: "Mostrar resultado de eliminación"
+      debug:
+        msg: "Archivos de información eliminados correctamente (errores ignorados)"
+        verbosity: 1
+
+    # === CREAR MOTD PERSONALIZADO SEGÚN TIPO DE SERVIDOR ===
+    - name: "Crear MOTD personalizado para Master"
+      copy:
+        content: |
+          #!/bin/sh
+          echo "SellYourSaas Master Server"
+          echo "Unauthorized access is prohibited"
+        dest: /etc/update-motd.d/00-sellyoursaas
+        mode: '0755'
+        owner: root
+        group: root
+      when: inventory_hostname in groups['master']
+
+    - name: "Crear MOTD personalizado para Deploy"
+      copy:
+        content: |
+          #!/bin/sh
+          echo "SellYourSaas Deployment Server"
+          echo "Unauthorized access is prohibited"
+        dest: /etc/update-motd.d/00-sellyoursaas
+        mode: '0755'
+        owner: root
+        group: root
+      when: inventory_hostname in groups['deploy']
+
+    # === CREAR MOTD GENÉRICO SI NO SE PUEDE DETERMINAR EL TIPO ===
+    - name: "Crear MOTD personalizado genérico"
+      copy:
+        content: |
+          #!/bin/sh
+          echo "SellYourSaas Server"
+          echo "Unauthorized access is prohibited"
+        dest: /etc/update-motd.d/00-sellyoursaas
+        mode: '0755'
+        owner: root
+        group: root
+      when: 
+        - inventory_hostname not in groups['master'] | default([])
+        - inventory_hostname not in groups['deploy'] | default([])

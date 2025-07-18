@@ -1,0 +1,201 @@
+# =============================================================================
+# Obtención de archivos de Dolibarr y SellYourSaas - Shared (Master y Deploy)
+# Getting files of Dolibarr and SellYourSaas application
+# =============================================================================
+---
+- name: "Obtener archivos de Dolibarr y SellYourSaas"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === DETECTAR TIPO DE SERVIDOR ===
+    - name: "Detectar tipo de servidor"
+      set_fact:
+        server_type: "{{ 'master' if inventory_hostname in groups['master'] else 'deploy' }}"
+
+    # === INSTALAR GIT (como root) ===
+    - name: "Instalar Git como root"
+      package:
+        name: git
+        state: present
+      become: true
+
+    # === CONFIGURAR GIT COMO ADMIN ===
+    - name: "Configurar Git safe directory para Dolibarr"
+      command: git config --global --add safe.directory {{ directories.wwwroot }}/dolibarr
+      become_user: "{{ system_users.app_admin }}"
+      ignore_errors: yes
+
+    - name: "Configurar Git safe directory para SellYourSaas"
+      command: git config --global --add safe.directory {{ directories.wwwroot }}/dolibarr_sellyoursaas
+      become_user: "{{ system_users.app_admin }}"
+      ignore_errors: yes
+
+    - name: "Configurar Git global user.name"
+      command: git config --global user.name "{{ system_users.app_admin }}"
+      become_user: "{{ system_users.app_admin }}"
+      ignore_errors: yes
+
+    - name: "Configurar Git global user.email"
+      command: git config --global user.email "{{ system_users.app_admin }}@{{ inventory_hostname }}"
+      become_user: "{{ system_users.app_admin }}"
+      ignore_errors: yes
+
+    # === CLONAR DOLIBARR ===
+    - name: "Cambiar al directorio wwwroot como admin"
+      file:
+        path: "{{ directories.wwwroot }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+
+    - name: "Clonar Dolibarr desde {{ dolibarr.git_repo }} rama {{ dolibarr.branch }}"
+      shell: |
+        cd {{ directories.wwwroot }}
+        git clone {{ dolibarr.git_repo }} dolibarr --branch {{ dolibarr.branch }}
+      become_user: "{{ system_users.app_admin }}"
+      register: dolibarr_clone
+      args:
+        creates: "{{ directories.wwwroot }}/dolibarr/.git"
+
+    - name: "Establecer permisos para Dolibarr (chown -R admin:admin)"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr"
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+        recurse: yes
+
+    # === CLONAR SELLYOURSAAS ===
+    - name: "Clonar SellYourSaas desde {{ sellyoursaas.git_repo }}"
+      shell: |
+        cd {{ directories.wwwroot }}
+        git clone {{ sellyoursaas.git_repo }} dolibarr_sellyoursaas
+      become_user: "{{ system_users.app_admin }}"
+      register: sellyoursaas_clone
+      args:
+        creates: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/.git"
+
+    - name: "Establecer permisos para SellYourSaas"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+        recurse: yes
+
+    # === CREAR ENLACE SIMBÓLICO DE SELLYOURSAAS EN DOLIBARR ===
+    - name: "Crear enlace simbólico de SellYourSaas en Dolibarr/custom"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+        dest: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas"
+        state: link
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        force: yes
+
+    # === CREAR DIRECTORIOS NECESARIOS ===
+    - name: "Crear directorio documents para Dolibarr"
+      file:
+        path: "{{ directories.documents }}"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+
+    - name: "Crear directorio conf para Dolibarr"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr/htdocs/conf"
+        state: directory
+        owner: "{{ system_users.app_admin }}"
+        group: "{{ system_users.app_admin }}"
+        mode: '0755'
+
+    # === VERIFICAR INSTALACIÓN ===
+    - name: "Verificar que Dolibarr se descargó correctamente"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr/htdocs/main.inc.php"
+      register: dolibarr_main_file
+
+    - name: "Verificar que SellYourSaas se descargó correctamente"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/README.md"
+      register: sellyoursaas_readme
+
+    - name: "Verificar enlace simbólico de SellYourSaas"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas"
+      register: sellyoursaas_link
+
+    - name: "Fallar si Dolibarr no se instaló correctamente"
+      fail:
+        msg: "Dolibarr no se instaló correctamente - falta main.inc.php"
+      when: not dolibarr_main_file.stat.exists
+
+    - name: "Fallar si SellYourSaas no se instaló correctamente"
+      fail:
+        msg: "SellYourSaas no se instaló correctamente - falta README.md"
+      when: not sellyoursaas_readme.stat.exists
+
+    - name: "Fallar si el enlace simbólico no se creó"
+      fail:
+        msg: "Enlace simbólico de SellYourSaas no se creó correctamente"
+      when: not sellyoursaas_link.stat.exists
+
+    # === OBTENER INFORMACIÓN DE LAS VERSIONES ===
+    - name: "Obtener información de la versión de Dolibarr"
+      command: git describe --tags --always
+      args:
+        chdir: "{{ directories.wwwroot }}/dolibarr"
+      register: dolibarr_version_info
+      become_user: "{{ system_users.app_admin }}"
+      changed_when: false
+
+    - name: "Obtener información de la versión de SellYourSaas"
+      command: git describe --tags --always
+      args:
+        chdir: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+      register: sellyoursaas_version_info
+      become_user: "{{ system_users.app_admin }}"
+      changed_when: false
+
+    # === MOSTRAR RESUMEN ===
+    - name: "Mostrar resumen de la instalación"
+      debug:
+        msg:
+          - "=== ARCHIVOS DE DOLIBARR Y SELLYOURSAAS DESCARGADOS ==="
+          - "Tipo de servidor: {{ server_type }}"
+          - "Dolibarr:"
+          - "  • Repositorio: {{ dolibarr.git_repo }}"
+          - "  • Rama: {{ dolibarr.branch }}"
+          - "  • Versión: {{ dolibarr_version_info.stdout }}"
+          - "  • Ubicación: {{ directories.wwwroot }}/dolibarr"
+          - "  • Estado: {{ 'Actualizado' if dolibarr_clone.changed else 'Sin cambios' }}"
+          - "SellYourSaas:"
+          - "  • Repositorio: {{ sellyoursaas.git_repo }}"
+          - "  • Rama: {{ sellyoursaas.branch }}"
+          - "  • Versión: {{ sellyoursaas_version_info.stdout }}"
+          - "  • Ubicación: {{ directories.wwwroot }}/dolibarr_sellyoursaas"
+          - "  • Estado: {{ 'Actualizado' if sellyoursaas_clone.changed else 'Sin cambios' }}"
+          - "Enlaces simbólicos:"
+          - "  • {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas"
+          - "Directorios creados:"
+          - "  • {{ directories.documents }}"
+          - "  • {{ directories.wwwroot }}/dolibarr/htdocs/conf"
+
+    - name: "Mostrar comandos ejecutados según documentación"
+      debug:
+        msg:
+          - "=== COMANDOS EJECUTADOS EQUIVALENTES ==="
+          - "Como root:"
+          - "  apt install git"
+          - "Como {{ system_users.app_admin }}:"
+          - "  cd {{ directories.wwwroot }}"
+          - "  git clone {{ dolibarr.git_repo }} dolibarr --branch {{ dolibarr.branch }}"
+          - "  chown -R {{ system_users.app_admin }}:{{ system_users.app_admin }} {{ directories.wwwroot }}/dolibarr"
+          - "  cd {{ directories.wwwroot }}"
+          - "  git clone {{ sellyoursaas.git_repo }} dolibarr_sellyoursaas"
+          - "Enlace simbólico adicional:"
+          - "  ln -s {{ directories.wwwroot }}/dolibarr_sellyoursaas {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas"
