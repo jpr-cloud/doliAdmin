@@ -28,37 +28,55 @@
         block: |
           {{ directories.logs }}/*.log {
               daily
-              missingok
-              rotate 90
-              compress
-              delaycompress
               notifempty
-              create 644 root admin
+              rotate 7
+              compress
+              sharedscripts
+              postrotate
+                if [ -f "`. /etc/apache2/envvars ; echo ${APACHE_PID_FILE:-/var/run/apache2.pid}`" ]; then
+                        /etc/init.d/apache2 reload > /dev/null
+                fi
+              endscript
           }
         marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
-
-    - name: "Crear configuración logrotate para logs de SellYourSaas"
+    - name: "Crear configuración logrotate para logs de admin"
       blockinfile:
         path: /etc/logrotate.d/logrotate_sellyoursaas_log
         create: yes
         block: |
-          {{ directories.documents }}/*.log {
-              daily
-              missingok
-              rotate 90
-              compress
-              delaycompress
-              notifempty
-              create 644 {{ system_users.app_admin }} admin
+          /var/log/phpsendmail.log /var/log/phpmail.log {
+                  su root root
+                  weekly
+                  rotate 4
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 666 syslog adm
           }
-        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS LOGROTATE"
 
-    - name: "Configurar tamaño máximo de journals"
-      lineinfile:
-        path: /etc/systemd/journald.conf
-        regexp: '^#?SystemMaxUse='
-        line: 'SystemMaxUse=100M'
-      notify: restart systemd-journald
+          /var/log/remote_server.log {
+                  su root root
+                  weekly
+                  rotate 4
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 600 root root
+          }
+
+          /home/admin/wwwroot/dolibarr_documents/*.log {
+                  su admin www-data
+                  daily
+                  rotate 7
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 660 admin www-data
+          }
+        marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
 
   handlers:
     - name: restart systemd-journald

@@ -7,13 +7,14 @@ subdomain: 'a1'
 master_server:
   hostname: 'master'
   ip: '195.201.216.33'
+  ip_internal: '192.168.178.2'
   domain: '{{ domain }}'  # Dominio para el servidor Master
   fqdn: 'master.{{ domain}}'
 
 deployment_server:
   hostname: 'deploy'
   ip: '91.99.229.240'
-  ip_internal: '91.99.229.240'
+  ip_internal: '192.168.178.3'
   domain: '{{ domain }}'  # Dominio para instancias
   fqdn: 'deploy.{{ domain }}'
 
@@ -68,6 +69,8 @@ database:
   user: 'sellyoursaas'
   password: 'p123p123'
   root_password: 'p123p123'
+
+
 database_deploySaas:
   host: '192.168.178.2'
   port: 3306
@@ -295,24 +298,47 @@ cron_jobs:
       hour: '0'
       job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1'
     - name: 'Set permissions'
+      minute: '40'
+      hour: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.sh > {{ directories.logs }}/perms.log'
+    - name: 'Backup backups'
       minute: '0'
       hour: '4'
-      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.ksh >{{ directories.logs }}/perms.log'
-    - name: 'Backup backups'
-      minute: '40'
-      hour: '15'
       job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1'
-    - name: 'Detect evil instances'
-      minute: '0'
-      hour: '9'
-      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1'
-  
-  deployment:
-    - name: 'Clean instances'
+    - name: 'clean.sh confirm'
       minute: '40'
       hour: '4'
       day: '4'
       job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm'
+  master_as_admin:
+#    - name: 'Detect evil instances'
+#      minute: '0'
+#      hour: '9'
+#      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1'
+    - name: 'cron_run_jobs.php'
+      minute: '*/10'
+      hour: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/scripts/cron/cron_run_jobs.php <securitykeydefinedinscheduledjobsetup> anonymousbatch >> {{ directories.wwwroot }}/dolibarr_documents/cron_run_jobs.php.log 2>&1'
+    - name: 'batch_customers'
+      minute: '5'
+      hour: '5'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php updatestatsonly >> /home/admin/logs/batch_customers-updatedatabase.log 2>&1'
+    - name: 'git_update_sources'
+      minute: '7'
+      hour: '7'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/git_update_sources.sh {{ directories.wwwroot }}/dolibarr_documents/sellyoursaas/git >> /home/admin/logs/git_update_sources.log 2>&1'
+
+  deployment:
+    
+#    - name: 'git_update_sellyoursaas.sh'
+#      minute: '7'
+#      hour: '7'
+#      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/git_update_sellyoursaas.sh /home/admin/wwwroot >> /home/admin/logs/git_update_sellyoursaas.log 2>&1'
+    - name: 'Clean instances'
+      minute: '40'
+      hour: '5'
+      day: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php backupdelete >> /home/admin/logs/batch_customers-backup.log 2>&1'
 
 # === WATCHDOGS ===
 watchdog_services:

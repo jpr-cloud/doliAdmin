@@ -28,7 +28,6 @@
       package:
         name: nfs-kernel-server
         state: present
-
     - name: "Configurar /etc/exports para NFS"
       blockinfile:
         path: /etc/exports

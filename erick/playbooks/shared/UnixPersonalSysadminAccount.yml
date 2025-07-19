@@ -1,18 +1,17 @@
 - name: Unix personal sysadmin account
-  hosts: '{{target}}'
+  hosts: '{{ target }}'
   become: yes
-  #become_method: sudo
   become_user: root
   tasks:
-    - name: Agregando al administrador del sistema {{ system_users.UnixPersonalSysadmin }} con sus respectivas claves
+    - name: 'Agregando al administrador del sistema {{ system_users.UnixPersonalSysadmin }} con sus respectivas claves'
       ansible.builtin.user:
         name: '{{ system_users.UnixPersonalSysadmin }}'
         password: "{{ system_users.UnixPersonalSysadmin_password | password_hash('sha512') }}"
-        # Create a 2048-bit SSH key for user jsmith in ~{{jpyrsaadmin}}/.ssh/id_rsa
         generate_ssh_key: yes
         ssh_key_bits: 2048
         ssh_key_file: .ssh/id_rsa
-    - name: Creando el archivo /etc/sudoers.d/{{ user_sysadmin }}
+
+    - name: "Creando el archivo /etc/sudoers.d/{{ system_users.UnixPersonalSysadmin }}"
       copy:
         dest: "/etc/sudoers.d/{{ system_users.UnixPersonalSysadmin }}"
         content: |
@@ -22,15 +21,16 @@
         owner: root
         group: root
         mode: '0440'
-# TODO:
-#    - name: Ensure .ssh directory exists
+
+    - name: "Asegurar que el directorio .ssh existe"
       file:
         path: "/home/{{ system_users.UnixPersonalSysadmin }}/.ssh"
         state: directory
-        mode: 0700
+        mode: '0700'
         owner: "{{ system_users.UnixPersonalSysadmin }}"
         group: "{{ system_users.UnixPersonalSysadmin }}"
-#    - name: Add public key to authorized_keys file
+
+    - name: "Agregar clave pública a authorized_keys"
       ansible.posix.authorized_key:
         user: "{{ system_users.UnixPersonalSysadmin }}"
         state: present

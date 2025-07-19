@@ -49,10 +49,10 @@
 # =============================================================================
 # 'SSH setup' Solo para deployment, no para master
 # =============================================================================
-- name: "SSH setup"
-  import_playbook: playbooks/master/ssh.yml
-  vars:
-    target: master
+#- name: "SSH setup"
+#  import_playbook: playbooks/master/ssh.yml
+#  vars:
+#    target: master
 
 
 # =============================================================================
@@ -88,8 +88,7 @@
   import_playbook: playbooks/master/nfs_master.yml
   vars:
     target: master
-    nfs:
-    internal_dest_ip: "{{ deployment_server.ip_internal | default(deployment_server.ip) }}"
+    internal_dest_ip: "{{ deployment_server.ip_internal }}"
 
 # =============================================================================
 # [FALTA] Deploy the public key of master admin on deployment admin account
@@ -123,37 +122,67 @@
     target: master
 
 # TODO: Configuración de Mariadb
-- name: "FASE 2.5: Configuración MariaDB en Master"
-  import_playbook: playbooks/master/mariadb_master.yml
+#- name: "FASE 2.5: Configuración MariaDB en Master"
+#  import_playbook: playbooks/master/mariadb_master.yml
+#  vars:
+#    target: master
+
+
+
+#- name: "FASE 2.7: Configuración SSL/Certbot en Master"
+#  import_playbook: playbooks/master/certbot_master.yml
+#  vars:
+#    target: master
+
+# =============================================================================
+# Setup PHP
+# =============================================================================
+- name: "[Setup PHP]: Configuración PHP en Master"
+  import_playbook: playbooks/shared/SetupPHP.yml
   vars:
     target: master
 
-
-
-- name: "FASE 2.7: Configuración SSL/Certbot en Master"
-  import_playbook: playbooks/master/certbot_master.yml
-  vars:
-    target: master
-
-
-
-- name: "FASE 2.9: Configuración Logrotate en Master"
+# =============================================================================
+# Setup of logrotate
+# =============================================================================
+- name: "[Setup of logrotate]: Configuración Logrotate en Master"
   import_playbook: playbooks/shared/logrotate.yml
   vars:
     host: master
 
-- name: "FASE 2.10: Configuración Cron en Master"
-  import_playbook: playbooks/shared/cron.yml
+# =============================================================================
+# Setup of journalctl
+# =============================================================================
+- name: "[Setup of journalctl]: Optimización CPU y logs"
+  import_playbook: playbooks/shared/cpulimit_journalctl.yml
   vars:
     target: master
 
-- name: "FASE 2.11: Configuración alias básicos en Master"
-  import_playbook: playbooks/master/master_alias.yml
+# =============================================================================
+# Installation of Cron tasks
+# =============================================================================
+- name: "[Installation of Cron tasks]: Configuración Cron en Master"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+- name: "[Installation of Dolibarr framework]: Instalación de Dolibarr en Master"
+  import_playbook: playbooks/shared/dolibarrInstall.yml
+  vars:
+    target: master
+    scope: master
+
+#- name: "FASE 2.11: Configuración alias básicos en Master"
+#  import_playbook: playbooks/master/master_alias.yml
 
 
 
-- name: "FASE 2.13: Configuración Watchdog en Master"
-  import_playbook: playbooks/master/watchdog_master.yml
+#- name: "FASE 2.13: Configuración Watchdog en Master"
+#  import_playbook: playbooks/master/watchdog_master.yml
 
 # =============================================================================
 # VERIFICACIÓN MASTER
@@ -207,66 +236,62 @@
   vars:
     ansible_limit: master
 
-- name: "FASE 16: Optimización CPU y logs"
-  import_playbook: playbooks/shared/cpulimit_journalctl.yml
-  vars:
-    ansible_limit: master
 
-- name: "FASE 17: Virtual hosts del Master"
-  import_playbook: playbooks/master/vhosts_master.yml
+#- name: "FASE 17: Virtual hosts del Master"
+#  import_playbook: playbooks/master/vhosts_master.yml
 
-- name: "FASE 18: Configuración Geoip2"
-  import_playbook: playbooks/master/geoip2_master.yml
+#- name: "FASE 18: Configuración Geoip2"
+#  import_playbook: playbooks/master/geoip2_master.yml
 
-- name: "FASE 19: Usuario personal sysadmin"
-  import_playbook: playbooks/shared/personal_sysadmin.yml
-  vars:
-    ansible_limit: master
-
-- name: "FASE 20: Script de monitoreo basic.sh"
-  import_playbook: playbooks/shared/monitor_basic.yml
-  vars:
-    ansible_limit: master
-
-- name: "FASE 21: SSL wildcard personalizado"
-  import_playbook: playbooks/shared/ssl_wildcard.yml
-  vars:
-    ansible_limit: master
+#- name: "FASE 19: Usuario personal sysadmin"
+#  import_playbook: playbooks/shared/personal_sysadmin.yml
+#  vars:
+#    ansible_limit: master
+#
+#- name: "FASE 20: Script de monitoreo basic.sh"
+#  import_playbook: playbooks/shared/monitor_basic.yml
+#  vars:
+#    ansible_limit: master
+#
+#- name: "FASE 21: SSL wildcard personalizado"
+#  import_playbook: playbooks/shared/ssl_wildcard.yml
+#  vars:
+#    ansible_limit: master
 
 # =============================================================================
 # INFORMACIÓN FINAL MASTER
 # =============================================================================
-- name: "FASE 4: Información final Master"
-  hosts: localhost
-  gather_facts: no
-  tasks:
-    - name: "Mostrar información de acceso Master"
-      debug:
-        msg:
-          - "================================================================"
-          - "    INSTALACIÓN SERVIDOR MASTER COMPLETADA - 100% COMPLIANCE"
-          - "================================================================"
-          - ""
-          - "🔧 ACCESOS MASTER:"
-          - "   • Admin Panel: https://admin.{{ master_server.domain }}"
-          - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
-          - "   • SSH: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
-          - "   • Monitor básico: ejecutar 'basic' en consola"
-          - ""
-          - "📊 SERVICIOS MASTER ACTIVOS:"
-          - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
-          - "   • Apache con SSL wildcard automático"
-          - "   • NFS Server para backups compartidos"
-          - "   • Monitoreo y backups automáticos"
-          - "   • Fail2ban + políticas contraseñas + antivirus"
-          - "   • Geoip2 + optimizaciones CPU/logs"
-          - ""
-          - "🚀 PRÓXIMOS PASOS:"
-          - "   1. Acceder al panel de administración"
-          - "   2. Completar configuración inicial de SellYourSaas"
-          - "   3. Instalar servidor de deployment cuando esté listo"
-          - "   4. Configurar certificados SSL definitivos"
-          - ""
-          - "📧 NOTIFICACIONES: {{ notifications.email }}"
-          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
-          - "================================================================"
+#- name: "FASE 4: Información final Master"
+#  hosts: localhost
+#  gather_facts: no
+#  tasks:
+#    - name: "Mostrar información de acceso Master"
+#      debug:
+#        msg:
+#          - "================================================================"
+#          - "    INSTALACIÓN SERVIDOR MASTER COMPLETADA - 100% COMPLIANCE"
+#          - "================================================================"
+#          - ""
+#          - "🔧 ACCESOS MASTER:"
+#          - "   • Admin Panel: https://admin.{{ master_server.domain }}"
+#          - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
+#          - "   • SSH: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
+#          - "   • Monitor básico: ejecutar 'basic' en consola"
+#          - ""
+#          - "📊 SERVICIOS MASTER ACTIVOS:"
+#          - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
+#          - "   • Apache con SSL wildcard automático"
+#          - "   • NFS Server para backups compartidos"
+#          - "   • Monitoreo y backups automáticos"
+#          - "   • Fail2ban + políticas contraseñas + antivirus"
+#          - "   • Geoip2 + optimizaciones CPU/logs"
+#          - ""
+#          - "🚀 PRÓXIMOS PASOS:"
+#          - "   1. Acceder al panel de administración"
+#          - "   2. Completar configuración inicial de SellYourSaas"
+#          - "   3. Instalar servidor de deployment cuando esté listo"
+#          - "   4. Configurar certificados SSL definitivos"
+#          - ""
+#          - "📧 NOTIFICACIONES: {{ notifications.email }}"
+#          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+#          - "================================================================"

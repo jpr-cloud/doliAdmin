@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración de cpulimit y journalctl"
-  hosts: "{{ target_hosts | default('all') }}"
+  hosts: "{{ target | default('all') }}"
   become: true
   gather_facts: yes
 
@@ -17,21 +17,13 @@
       lineinfile:
         path: /etc/systemd/journald.conf
         regexp: '^#?SystemMaxUse='
-        line: 'SystemMaxUse=500M'
+        line: 'SystemMaxUse=1G'
         backup: yes
-
-    - name: "Configurar journalctl - retención"
+    - name: "Configurar journalctl - SplitMode"
       lineinfile:
         path: /etc/systemd/journald.conf
-        regexp: '^#?MaxRetentionSec='
-        line: 'MaxRetentionSec=1month'
-        backup: yes
-
-    - name: "Configurar journalctl - compresión"
-      lineinfile:
-        path: /etc/systemd/journald.conf
-        regexp: '^#?Compress='
-        line: 'Compress=yes'
+        regexp: '^#?SplitMode='
+        line: 'SplitMode=none'
         backup: yes
 
     - name: "Reiniciar journald"

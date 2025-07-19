@@ -8,7 +8,7 @@
   gather_facts: yes
 
   tasks:
-    - name: "Configurar cron jobs para Master"
+    - name: "Configurar cron jobs para Master root || admin"
       cron:
         name: "{{ item.name }}"
         minute: "{{ item.minute }}"
@@ -17,12 +17,31 @@
         job: "{{ item.job }}"
         user: root
       loop: "{{ cron_jobs.master }}"
+      when: '{{ scope }} == "master" Or {{ scope }} == "deployment"'
+
+    - name: "Configurar cron jobs para Master {{ system_users.admin}}"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        job: "{{ item.job }}"
+        user: '{{ system_users.admin}}'
+      loop: "{{ cron_jobs.master_as_admin }}"
+      when: '{{ scope }} == "master"'
+
+    - name: "cron master and deployment admin"
+      cron:
+        name: "batch_customers backupdelete"
+        minute: "5"
+        hour: "0"
+        job: "/home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php backupdelete >> /home/admin/logs/batch_customers-backup.log 2>&1"
+        user: '{{ system_users.admin}}'
+      when: '{{ scope }} == "master" Or {{ scope }} == "deployment"'
 
 - name: "Configuración de Cron Jobs para Deployment"
-  hosts: deployment
   become: true
   gather_facts: yes
-
   tasks:
     - name: "Configurar cron jobs para Deployment"
       cron:
@@ -31,5 +50,21 @@
         hour: "{{ item.hour }}"
         day: "{{ item.day | default('*') }}"
         job: "{{ item.job }}"
-        user: root
+        user: '{{ system_users.admin }}'
       loop: "{{ cron_jobs.deployment }}"
+      when: '{{ scope }} == "deployment"'
+
+- name: "Configuración de Cron Jobs para Deployment"
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Configurar cron jobs para Deployment"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        job: "{{ item.job }}"
+        user: '{{ system_users.admin }}'
+      loop: "{{ cron_jobs.deployment }}"
+      when: '{{ scope }} == "deployment"'

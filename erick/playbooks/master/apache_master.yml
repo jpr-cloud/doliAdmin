@@ -13,6 +13,8 @@
         name: "{{ item }}"
         state: present
       loop: "{{ apache_modules }}"
+      register: apache_module_result
+      ignore_errors: yes
       notify: restart apache2
 
     - name: "Habilitar configuraciones de Apache"
@@ -29,6 +31,12 @@
 #          'New password:': '{{ system_users.admin_password }}'
 #        timeout: 30
 #      ignore_errors: yes
+    - name: "Instalar dependencias Python para htpasswd"
+      package:
+        name: 
+          - python3-passlib
+          - apache2-utils
+        state: present
 
     - name: "Crear archivo .htpasswd para Apache"
       htpasswd:
@@ -51,9 +59,9 @@
 
 
 
-    - name: "Configurar Virtual Host para admin.{{ master_server.domain }}"
+    - name: "Configurar Virtual Host para admin.{{ domain }}"
       blockinfile:
-        path: "/etc/apache2/sites-available/admin.{{ master_server.domain }}.conf"
+        path: "/etc/apache2/sites-available/admin.{{ domain }}.conf"
         create: yes
         block: |
           ##########################
@@ -64,7 +72,7 @@
           #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f webmaster@mysaasdomainname.com"
           php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/dolibarr/htdocs:/usr/share/GeoIP:{{ directories.jail }}
           <VirtualHost *:80>
-              ServerName admin.{{ master_server.name }}.{{ master_server.domain }}
+              ServerName admin.{{ domain }}
               DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs
               ErrorLog     {{ directories.logs }}/admin_error_log
               CustomLog    {{ directories.logs }}/admin_access_log combined
@@ -148,7 +156,7 @@
 
     - name: "Configurar Virtual Host para myaccount"
       blockinfile:
-        path: "/etc/apache2/sites-available/myaccount.{{ master_server.domain }}.conf"
+        path: "/etc/apache2/sites-available/myaccount.{{ domain }}.conf"
         create: yes
         block: |
           #########################

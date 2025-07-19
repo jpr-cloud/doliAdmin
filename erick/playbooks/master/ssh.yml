@@ -14,6 +14,7 @@
     - name: Respaldar archivos de información de login /etc/update-motd.d/20-runabove
       ansible.builtin.command:
         cmd: mv {{ item }} {{ item }}_{{ fecha_archivo }}
+        ignore_errors: yes
       loop:
         - /etc/update-motd.d/00-header
         - /etc/update-motd.d/20-runabove

@@ -1,0 +1,19 @@
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+---
+- name: 'Installation of Dolibarr framework'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: Create a symbolic link called sellyoursaas into
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas
+        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas
+        state: link
+    - name: Create a symbolic link called main.inc.php into directory myaccount
+      file:
+        src: /home/admin/wwwroot/dolibarr/htdocs/main.inc.php
+        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount
+        state: link

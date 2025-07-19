@@ -44,6 +44,7 @@
         owner: root
         group: '{{ system_users.admin }}'
         mode: '0770'
+      failed_when: false 
 
 
     - name: 'Creando directorios de trabajo de {{ system_users.admin }}'
@@ -60,6 +61,7 @@
         - '{{ directories.backup }}/backup/conf' # ok
         - '{{ directories.backup }}/backup/mysql' # ok
         - '{{ directories.wwwroot }}' # ok
+      failed_when: false 
 
 ## Unix admin account fin
 
