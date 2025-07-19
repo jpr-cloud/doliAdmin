@@ -71,6 +71,7 @@ Installation of unix watchdog (optional) | na | ✴️ | ✴️ | -
 Installation of the Apache watchdog | Apache_watchdog | ⛔ | ✅ | -
 Installation of the instance deployment agent| deployment_agent | ⛔ | ✅ | -
 Installation of fail2ban | na | ⛔ | ✅  | Miscelanea, es decir que este punto tiene configuraciones específicas para cada servidor
+==
 Test spamassassin | test_spamassassin | ✅  | ✅ | -
 Test and setup of ClamAV | test_ClamAV | ✅ | ✅ | -
 Afick | Afick | ✅  | ✅ | -

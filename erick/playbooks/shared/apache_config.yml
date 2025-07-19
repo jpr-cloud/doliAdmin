@@ -15,12 +15,16 @@
       register: php_version_output
       changed_when: false
 
-    - name: "Extraer versión de PHP"
+    - name: "Extraer versión de PHP (más robusta)"
       set_fact:
-        php_version: "{{ php_version_output.stdout.split(' ')[1].split('.')[0] }}.{{ php_version_output.stdout.split(' ')[1].split('.')[1] }}"
+        php_version: "{{ php_version_output.stdout | regex_search('PHP ([0-9]+\\.[0-9]+)', '\\1') | first }}"
+
+    - name: "Mostrar versión detectada de PHP"
+      debug:
+        msg: "Versión de PHP detectada: {{ php_version }}"
 
     # === HABILITAR MÓDULOS DE APACHE ===
-    - name: "Habilitar módulos Apache básicos"
+    - name: "Habilitar módulos Apache básicos - Línea 1"
       apache2_module:
         name: "{{ item }}"
         state: present
@@ -40,6 +44,14 @@
         - authz_owner
         - authz_user
         - autoindex
+      notify: restart apache2
+      ignore_errors: yes
+
+    - name: "Habilitar módulos Apache básicos - Línea 2"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
         - cache
         - cgid
         - cgi
@@ -62,22 +74,20 @@
         - include
         - info
         - ldap
+      notify: restart apache2
+      ignore_errors: yes
+
+    - name: "Habilitar módulos Apache básicos - Línea 3"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
         - mem_cache
         - mime
         - mime_magic
         - negotiation
         - reqtimeout
         - rewrite
-        - setenvif
-        - speling
-        - ssl
-        - status
-        - substitute
-        - suexec
-        - unique_id
-        - userdir
-        - usertrack
-        - vhost_alias
         - setenvif
         - speling
         - ssl
@@ -170,19 +180,38 @@
         backup: yes
       notify: restart apache2
 
-    # === CONFIGURAR SYSTEMD PARA APACHE ===
-    - name: "Verificar configuración PrivateTmp en apache2.service"
+    # === CONFIGURAR SYSTEMD PARA APACHE (Ubuntu 18.04+) ===
+    - name: "Verificar ubicación del archivo apache2.service"
+      stat:
+        path: "{{ item }}"
+      register: apache_service_locations
+      loop:
+        - /etc/systemd/system/multi-user.target.wants/apache2.service
+        - /lib/systemd/system/apache2.service
+        - /usr/lib/systemd/system/apache2.service
+
+    - name: "Determinar ubicación activa del archivo apache2.service"
+      set_fact:
+        apache_service_file: "{{ item.item }}"
+      loop: "{{ apache_service_locations.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "Configurar PrivateTmp=false en apache2.service (Ubuntu 18.04+)"
       lineinfile:
-        path: /etc/systemd/system/multi-user.target.wants/apache2.service
+        path: "{{ apache_service_file }}"
         regexp: '^PrivateTmp='
         line: 'PrivateTmp=false'
         backup: yes
+        insertafter: '^\[Service\]'
       register: systemd_config
+      when: apache_service_file is defined
       notify: 
         - reload systemd
         - restart apache2
 
-    # === VERIFICACIONES ===
+    # === VERIFICACIONES FINALES ===
     - name: "Verificar módulos Apache habilitados"
       command: apache2ctl -M
       register: apache_modules_check
@@ -193,23 +222,59 @@
       register: apache_config_check
       changed_when: false
 
-    - name: "Mostrar resumen de configuración"
+    - name: "Verificar configuraciones habilitadas"
+      command: apache2ctl -S
+      register: apache_sites_check
+      changed_when: false
+
+    - name: "Verificar que PrivateTmp esté configurado"
+      shell: |
+        if [ -f "{{ apache_service_file | default('/lib/systemd/system/apache2.service') }}" ]; then
+          grep "PrivateTmp=" "{{ apache_service_file | default('/lib/systemd/system/apache2.service') }}" || echo "PrivateTmp not found"
+        else
+          echo "Service file not found"
+        fi
+      register: private_tmp_check
+      changed_when: false
+
+    - name: "Mostrar resumen completo de configuración"
       debug:
         msg:
           - "=== CONFIGURACIÓN APACHE COMPLETADA ==="
           - "Versión PHP detectada: {{ php_version }}"
+          - "Archivo servicio Apache: {{ apache_service_file | default('No encontrado') }}"
+          - "PrivateTmp configuración: {{ private_tmp_check.stdout }}"
           - "Módulos habilitados: {{ apache_modules_check.stdout_lines | length }} módulos"
-          - "Configuración Apache: {{ 'VÁLIDA' if apache_config_check.rc == 0 else 'ERROR' }}"
+          - "Configuración Apache: {{ 'VÁLIDA' if apache_config_check.rc == 0 else 'ERROR - ' + apache_config_check.stderr }}"
           - "Configuración SystemD: {{ 'ACTUALIZADA' if systemd_config.changed else 'SIN CAMBIOS' }}"
           - "Logs de error: Configurados con rotación automática"
           - "Virtual hosts SellYourSaas: Configurados en sellyoursaas-enabled/"
+          - "Configuraciones habilitadas: charset, localized-error-pages, other-vhosts-access-log, security"
 
   handlers:
-    - name: restart apache2
-      service:
-        name: apache2
-        state: restarted
-
     - name: reload systemd
       systemd:
         daemon_reload: yes
+
+    - name: restart apache2
+      block:
+        - name: "Ejecutar daemon-reload (según documentación)"
+          systemd:
+            daemon_reload: yes
+        
+        - name: "Parar Apache (según documentación)"
+          command: /usr/sbin/apachectl stop
+          ignore_errors: yes
+        
+        - name: "Iniciar Apache (según documentación)"
+          command: /usr/sbin/apachectl start
+        
+        - name: "Verificar estado Apache (según documentación)"
+          command: /usr/sbin/apachectl status
+          register: apache_status_check
+          ignore_errors: yes
+        
+        - name: "Mostrar estado de Apache"
+          debug:
+            msg: "Estado Apache: {{ apache_status_check.stdout_lines }}"
+          when: apache_status_check.stdout_lines is defined

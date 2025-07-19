@@ -94,12 +94,15 @@
 - name: "FASE 2.4.3: Configuración Apache Deploy (Legacy)"
   import_playbook: playbooks/deploy/apache_deploy.yml
 
-- name: "FASE 2.4.4: Configuración del Filesystem de Logs (Opcional)"
+- name: "FASE 2.4.4: Configuración directorios Virtual Hosts para instancias"
+  import_playbook: playbooks/deploy/virtual_hosts.yml
+
+- name: "FASE 2.4.5: Configuración del Filesystem de Logs (Opcional)"
   import_playbook: playbooks/shared/logs_filesystem.yml
   vars:
     target_hosts: deploy
 
-- name: "FASE 2.4.5: Configuración Timeout MariaDB"
+- name: "FASE 2.4.6: Configuración Timeout MariaDB"
   import_playbook: playbooks/shared/mariadb_timeout.yml
   vars:
     target_hosts: deploy
@@ -210,6 +213,12 @@
 
 - name: "FASE 2.21: Configuración Watchdog en Deploy"
   import_playbook: playbooks/deploy/watchdog_deploy.yml
+
+- name: "FASE 2.22: Instalación Apache Watchdog (SOLO DEPLOY)"
+  import_playbook: playbooks/deploy/apache_watchdog.yml
+
+- name: "FASE 2.23: Instalación Instance Deployment Agent (SOLO DEPLOY)"
+  import_playbook: playbooks/deploy/deployment_agent.yml
 
 # =============================================================================
 # VERIFICACIÓN DEPLOYMENT

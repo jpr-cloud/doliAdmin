@@ -104,8 +104,6 @@
   import_playbook: playbooks/shared/unix_watchdog.yml
   vars:
     target_hosts: master
-  vars:
-    target_hosts: master
 
 - name: "FASE 2.8.2: Test SpamAssassin Configuration"
   import_playbook: playbooks/shared/test_spamassassin.yml

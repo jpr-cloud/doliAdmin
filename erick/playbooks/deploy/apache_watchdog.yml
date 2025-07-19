@@ -1,0 +1,188 @@
+# =============================================================================
+# Instalación Apache Watchdog para Deploy Servers
+# Installation of the Apache watchdog (SOLO DEPLOY)
+# =============================================================================
+---
+- name: "Instalación y configuración Apache Watchdog SellYourSaas"
+  hosts: "{{ target_hosts | default('deploy') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === VERIFICAR DIRECTORIO DE SCRIPTS ===
+    - name: "Verificar si existe directorio de scripts SellYourSaas"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts
+      register: scripts_dir
+
+    - name: "Verificar scripts de Apache watchdog"
+      stat:
+        path: "/home/admin/wwwroot/dolibarr_sellyoursaas/scripts/{{ item }}"
+      register: watchdog_scripts
+      loop:
+        - apache_watchdog_launcher1.sh
+        - apache_watchdog_launcher2.sh
+        - apache_watchdog_launcher3.sh
+        - smtp_watchdog_launcher1.sh
+
+    - name: "Advertir si faltan scripts de watchdog"
+      debug:
+        msg: 
+          - "ADVERTENCIA: No se encontraron todos los scripts de Apache watchdog"
+          - "Asegúrate de ejecutar primero la obtención de archivos Dolibarr/SellYourSaas"
+          - "Scripts faltantes:"
+          - "{{ watchdog_scripts.results | selectattr('stat.exists', 'equalto', false) | map(attribute='item') | list }}"
+      when: watchdog_scripts.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
+
+    # === CREAR ENLACES SIMBÓLICOS ===
+    - name: "Crear enlace simbólico apache_watchdog_launcher1"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/apache_watchdog_launcher1.sh
+        dest: /etc/init.d/apache_watchdog_launcher1
+        state: link
+        force: yes
+      when: scripts_dir.stat.exists and watchdog_scripts.results[0].stat.exists
+      register: watchdog1_link
+
+    - name: "Crear enlace simbólico apache_watchdog_launcher2"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/apache_watchdog_launcher2.sh
+        dest: /etc/init.d/apache_watchdog_launcher2
+        state: link
+        force: yes
+      when: scripts_dir.stat.exists and watchdog_scripts.results[1].stat.exists
+      register: watchdog2_link
+
+    - name: "Crear enlace simbólico apache_watchdog_launcher3"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/apache_watchdog_launcher3.sh
+        dest: /etc/init.d/apache_watchdog_launcher3
+        state: link
+        force: yes
+      when: scripts_dir.stat.exists and watchdog_scripts.results[2].stat.exists
+      register: watchdog3_link
+
+    - name: "Crear enlace simbólico smtp_watchdog_launcher1"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/smtp_watchdog_launcher1.sh
+        dest: /etc/init.d/smtp_watchdog_launcher1
+        state: link
+        force: yes
+      when: scripts_dir.stat.exists and watchdog_scripts.results[3].stat.exists
+      register: smtp_watchdog1_link
+
+    # === RECARGAR SYSTEMD ===
+    - name: "Recargar daemon systemd"
+      systemd:
+        daemon_reload: yes
+      when: watchdog1_link.changed or watchdog2_link.changed or watchdog3_link.changed or smtp_watchdog1_link.changed
+
+    # === HABILITAR Y VERIFICAR APACHE_WATCHDOG_LAUNCHER1 ===
+    - name: "Habilitar apache_watchdog_launcher1"
+      systemd:
+        name: apache_watchdog_launcher1
+        enabled: yes
+      when: watchdog1_link.changed or scripts_dir.stat.exists and watchdog_scripts.results[0].stat.exists
+      register: watchdog1_enabled
+
+    - name: "Verificar si apache_watchdog_launcher1 está habilitado"
+      command: systemctl is-enabled apache_watchdog_launcher1
+      register: watchdog1_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de apache_watchdog_launcher1"
+      command: systemctl status apache_watchdog_launcher1
+      register: watchdog1_service_status
+      changed_when: false
+      failed_when: false
+
+    # === HABILITAR Y VERIFICAR APACHE_WATCHDOG_LAUNCHER2 ===
+    - name: "Habilitar apache_watchdog_launcher2"
+      systemd:
+        name: apache_watchdog_launcher2
+        enabled: yes
+      when: watchdog2_link.changed or scripts_dir.stat.exists and watchdog_scripts.results[1].stat.exists
+      register: watchdog2_enabled
+
+    - name: "Verificar si apache_watchdog_launcher2 está habilitado"
+      command: systemctl is-enabled apache_watchdog_launcher2
+      register: watchdog2_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de apache_watchdog_launcher2"
+      command: systemctl status apache_watchdog_launcher2
+      register: watchdog2_service_status
+      changed_when: false
+      failed_when: false
+
+    # === HABILITAR Y VERIFICAR APACHE_WATCHDOG_LAUNCHER3 ===
+    - name: "Habilitar apache_watchdog_launcher3"
+      systemd:
+        name: apache_watchdog_launcher3
+        enabled: yes
+      when: watchdog3_link.changed or scripts_dir.stat.exists and watchdog_scripts.results[2].stat.exists
+      register: watchdog3_enabled
+
+    - name: "Verificar si apache_watchdog_launcher3 está habilitado"
+      command: systemctl is-enabled apache_watchdog_launcher3
+      register: watchdog3_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de apache_watchdog_launcher3"
+      command: systemctl status apache_watchdog_launcher3
+      register: watchdog3_service_status
+      changed_when: false
+      failed_when: false
+
+    # === HABILITAR Y VERIFICAR SMTP_WATCHDOG_LAUNCHER1 ===
+    - name: "Habilitar smtp_watchdog_launcher1"
+      systemd:
+        name: smtp_watchdog_launcher1
+        enabled: yes
+      when: smtp_watchdog1_link.changed or scripts_dir.stat.exists and watchdog_scripts.results[3].stat.exists
+      register: smtp_watchdog1_enabled
+
+    - name: "Verificar si smtp_watchdog_launcher1 está habilitado"
+      command: systemctl is-enabled smtp_watchdog_launcher1
+      register: smtp_watchdog1_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de smtp_watchdog_launcher1"
+      command: systemctl status smtp_watchdog_launcher1
+      register: smtp_watchdog1_service_status
+      changed_when: false
+      failed_when: false
+
+    # === MOSTRAR INFORMACIÓN COMPLETA ===
+    - name: "Mostrar información completa de Apache Watchdog"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN APACHE WATCHDOG COMPLETADA ==="
+          - "Propósito: Compensar bug de Apache que causa muerte tras muchos reloads"
+          - "Servidor: SOLO DEPLOYMENT (como especifica la documentación)"
+          - ""
+          - "=== ENLACES SIMBÓLICOS CREADOS ==="
+          - "apache_watchdog_launcher1: {{ 'Creado' if watchdog1_link.changed else ('Disponible' if scripts_dir.stat.exists and watchdog_scripts.results[0].stat.exists else 'No disponible') }}"
+          - "apache_watchdog_launcher2: {{ 'Creado' if watchdog2_link.changed else ('Disponible' if scripts_dir.stat.exists and watchdog_scripts.results[1].stat.exists else 'No disponible') }}"
+          - "apache_watchdog_launcher3: {{ 'Creado' if watchdog3_link.changed else ('Disponible' if scripts_dir.stat.exists and watchdog_scripts.results[2].stat.exists else 'No disponible') }}"
+          - "smtp_watchdog_launcher1: {{ 'Creado' if smtp_watchdog1_link.changed else ('Disponible' if scripts_dir.stat.exists and watchdog_scripts.results[3].stat.exists else 'No disponible') }}"
+          - ""
+          - "=== ESTADO DE SERVICIOS ==="
+          - "apache_watchdog_launcher1: {{ watchdog1_status.stdout | default('No disponible') }} ({{ 'activo' if 'active' in watchdog1_service_status.stdout else 'inactivo' }})"
+          - "apache_watchdog_launcher2: {{ watchdog2_status.stdout | default('No disponible') }} ({{ 'activo' if 'active' in watchdog2_service_status.stdout else 'inactivo' }})"
+          - "apache_watchdog_launcher3: {{ watchdog3_status.stdout | default('No disponible') }} ({{ 'activo' if 'active' in watchdog3_service_status.stdout else 'inactivo' }})"
+          - "smtp_watchdog_launcher1: {{ smtp_watchdog1_status.stdout | default('No disponible') }} ({{ 'activo' if 'active' in smtp_watchdog1_service_status.stdout else 'inactivo' }})"
+          - ""
+          - "=== COMANDOS EJECUTADOS ==="
+          - "✓ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/apache_watchdog_launcher*.sh /etc/init.d/"
+          - "✓ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/smtp_watchdog_launcher1.sh /etc/init.d/"
+          - "✓ systemctl daemon-reload"
+          - "✓ systemctl enable apache_watchdog_launcher*"
+          - "✓ systemctl enable smtp_watchdog_launcher1"
+          - ""
+          - "NOTA: Los watchdogs están configurados para compensar el bug de Apache"
+          - "      que causa fallos después de muchos reloads en servidores deploy."

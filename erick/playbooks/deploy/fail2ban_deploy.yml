@@ -1,53 +1,401 @@
 # =============================================================================
-# Configuración Fail2ban en Deploy
+# Configuración Fail2ban en Deploy (SOLO DEPLOY)
+# Installation of fail2ban and activation of specific rules
 # =============================================================================
 ---
-- name: "Configuración Fail2ban Deploy"
-  hosts: deploy
+- name: "Instalación y configuración completa Fail2ban SellYourSaas"
+  hosts: "{{ target_hosts | default('deploy') }}"
   become: true
   gather_facts: yes
 
   tasks:
-    - name: "Configurar jail personalizado para SSH en deploy"
-      blockinfile:
-        path: /etc/fail2ban/jail.local
-        create: yes
-        marker: "# {mark} ANSIBLE MANAGED SSH JAIL DEPLOY"
-        block: |
+    # === INSTALAR FAIL2BAN ===
+    - name: "Instalar paquete fail2ban"
+      package:
+        name: fail2ban
+        state: present
+
+    # === VERIFICAR ARCHIVOS SELLYOURSAAS ===
+    - name: "Verificar directorio de filtros SellYourSaas"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d
+      register: sellyoursaas_filters_dir
+
+    - name: "Verificar directorio de jails SellYourSaas"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d
+      register: sellyoursaas_jails_dir
+
+    - name: "Advertir si faltan archivos SellYourSaas"
+      debug:
+        msg: 
+          - "ADVERTENCIA: No se encontraron archivos de configuración SellYourSaas"
+          - "Asegúrate de ejecutar primero la obtención de archivos Dolibarr/SellYourSaas"
+          - "Directorios esperados:"
+          - "  - /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d"
+          - "  - /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d"
+      when: not sellyoursaas_filters_dir.stat.exists or not sellyoursaas_jails_dir.stat.exists
+
+    # === CREAR ARCHIVO JAIL.LOCAL COMPLETO ===
+    - name: "Crear archivo /etc/fail2ban/jail.local completo"
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          # Fail2Ban configuration file.
+          #
+          # This file was composed for Debian systems from the original one
+          # provided now under /usr/share/doc/fail2ban/examples/jail.conf
+          # for additional examples.
+          #
+          # Comments: use '#' for comment lines and ';' for inline comments
+          #
+          # To avoid merges during upgrades DO NOT MODIFY THIS FILE
+          # and rather provide your changes in /etc/fail2ban/jail.local
+          #
+
+          # The DEFAULT allows a global definition of the options. They can be overridden
+          # in each jail afterwards.
+
+          [DEFAULT]
+          # "ignoreip" can be an IP address, a CIDR mask or a DNS host. Fail2ban will not
+          # ban a host which matches an address in this list. Several addresses can be
+          # defined using space separator.
+          ignoreip = 127.0.0.1/8 {{ business_ips | default('') }} {{ master_server.ip }}
+
+          # "bantime" is the number of seconds that a host is banned.
+          bantime  = 3600
+
+          # A host is banned if it has generated "maxretry" during the last "findtime"
+          # seconds.
+          findtime = 600
+          maxretry = 3
+
+          # "backend" specifies the backend used to get files modification.
+          # Available options are "pyinotify", "gamin", "polling" and "auto".
+          # This option can be overridden in each jail as well.
+          #
+          # pyinotify: requires pyinotify (a file alteration monitor) to be installed.
+          #            If pyinotify is not installed, Fail2ban will use auto.
+          # gamin:     requires Gamin (a file alteration monitor) to be installed.
+          #            If Gamin is not installed, Fail2ban will use auto.
+          # polling:   uses a polling algorithm which does not require external libraries.
+          # auto:      will try to use the following backends, in order:
+          #            pyinotify, gamin, polling.
+          backend = auto
+
+          # "usedns" specifies if jails should trust hostnames in logs,
+          #   warn when reverse DNS lookups are performed, or ignore all hostnames in logs
+          #
+          # yes:   if a hostname is encountered, a reverse DNS lookup will be performed.
+          # warn:  if a hostname is encountered, a reverse DNS lookup will be performed,
+          #        but it will be logged as a warning.
+          # no:    if a hostname is encountered, will not be used for banning,
+          #        but it will be logged as info.
+          usedns = warn
+
+          #
+          # Destination email address used solely for the interpolations in
+          # jail.{conf,local} configuration files.
+          destemail = {{ notifications.email }}
+
+          #
+          # Name of the sender for mta actions
+          sendername = Fail2Ban
+
+          #
+          # ACTIONS
+          #
+
+          # Default banning action (e.g. iptables, iptables-new,
+          # iptables-multiport, shorewall, etc) It is used to define
+          # action_* variables. Can be overridden globally or per
+          # section within jail.local file
+          banaction = iptables-multiport
+
+          # email action. Since 0.8.1 upstream fail2ban uses sendmail
+          # MTA for the mailing. Change mta configuration parameter to mail
+          # if you want to revert to conventional 'mail'.
+          mta = sendmail
+
+          # === REGLAS GENÉRICAS FAIL2BAN ===
+
+          [apache-shellshock]
+          enabled = true
+
+          [php-url-fopen]
+          enabled = true
+
+          [pam-generic]
+          enabled = true
+
+          [postfix-sasl]
+          # Overwrite param port since it is wrong into file jail.conf because it contains 'imap3' instead of 'imap' that does not exists
+          port    = smtp,465,submission,imap,imaps,pop3,pop3s
+          enabled = true
+
           [sshd]
           enabled = true
-          port = {{ ssh_config.port }}
-          filter = sshd
-          logpath = /var/log/auth.log
-          maxretry = 3
-          bantime = 3600
-          findtime = 600
 
-    - name: "Configurar jail para Apache en instancias"
-      blockinfile:
-        path: /etc/fail2ban/jail.local
-        marker: "# {mark} ANSIBLE MANAGED APACHE INSTANCES JAIL"
-        block: |
-          [apache-auth-instances]
+          [xinetd-fail]
           enabled = true
-          port = http,https
-          filter = apache-auth
-          logpath = /var/log/apache2/*_error.log
-          maxretry = 5
-          bantime = 3600
-          findtime = 600
 
-          [apache-badbots-instances]
-          enabled = true
-          port = http,https
-          filter = apache-badbots
-          logpath = /var/log/apache2/*_access.log
+          [apache-badbots]
+          # Ban hosts which agent identifies spammer robots crawling the web
+          # for email addresses. The mail outputs are buffered.
+          port     = http,https
+          logpath  = %(apache_access_log)s
+          bantime  = 172800
+          maxretry = 1
+          enabled  = true
+
+          [apache-noscript]
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 6
+          enabled  = true
+
+          [apache-overflows]
+          port     = http,https
+          logpath  = %(apache_error_log)s
           maxretry = 2
-          bantime = 86400
+          enabled  = true
 
-          [apache-noscript-instances]
+          [apache-nohome]
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 2
+          enabled  = true
+
+          [apache-botsearch]
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 2
+          enabled  = true
+
+          [mysqld-auth]
+          port     = 3306
+          logpath  = /var/log/mysql/error.log
+                     /var/log/syslog
+          #backend  = %(mysql_backend)s
           enabled = true
-          port = http,https
+          bantime  = 7200      ; 2 hours
+          findtime = 3600      ; 1 hour
+          maxretry = 5
+        mode: '0644'
+        backup: yes
+      register: jail_local_created
+
+    # === CREAR ENLACES SIMBÓLICOS DE FILTROS ===
+    - name: "Buscar archivos de filtros SellYourSaas"
+      find:
+        paths: /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d
+        patterns: "*.conf"
+      register: sellyoursaas_filter_files
+      when: sellyoursaas_filters_dir.stat.exists
+
+    - name: "Crear enlaces simbólicos para filtros SellYourSaas"
+      file:
+        src: "{{ item.path }}"
+        dest: "/etc/fail2ban/filter.d/{{ item.path | basename }}"
+        state: link
+        force: yes
+      loop: "{{ sellyoursaas_filter_files.files | default([]) }}"
+      when: sellyoursaas_filters_dir.stat.exists
+      register: filter_links_created
+
+    # === ENLACES ESPECÍFICOS DE FILTROS DOCUMENTADOS ===
+    - name: "Crear enlaces específicos de filtros documentados"
+      file:
+        src: "/home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d/{{ item }}"
+        dest: "/etc/fail2ban/filter.d/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit401.conf
+        - web-accesslog-limit403.conf
+        - web-accesslog-limitapi.conf
+        - web-accesslog-limitapipermin.conf
+        - web-dolibarr-rulespassforgotten.conf
+        - web-dolibarr-rulesbruteforce.conf
+        - web-dolibarr-ruleslimitpublic.conf
+        - web-dolibarr-rulesregisterinstance.conf
+      when: sellyoursaas_filters_dir.stat.exists
+      ignore_errors: yes
+
+    # === CREAR ENLACES SIMBÓLICOS DE JAILS ===
+    - name: "Buscar archivos de jail SellYourSaas"
+      find:
+        paths: /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d
+        patterns: "*.conf"
+      register: sellyoursaas_jail_files
+      when: sellyoursaas_jails_dir.stat.exists
+
+    - name: "Crear enlaces simbólicos para jails SellYourSaas"
+      file:
+        src: "{{ item.path }}"
+        dest: "/etc/fail2ban/jail.d/{{ item.path | basename }}"
+        state: link
+        force: yes
+      loop: "{{ sellyoursaas_jail_files.files | default([]) }}"
+      when: sellyoursaas_jails_dir.stat.exists
+      register: jail_links_created
+
+    # === ENLACES ESPECÍFICOS DE JAILS DOCUMENTADOS ===
+    - name: "Crear enlaces específicos de jails documentados"
+      file:
+        src: "/home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/{{ item }}"
+        dest: "/etc/fail2ban/jail.d/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit401.conf
+        - web-accesslog-limit403.conf
+        - web-accesslog-limitapi.conf
+        - web-accesslog-limitapipermin.conf
+      when: sellyoursaas_jails_dir.stat.exists
+      ignore_errors: yes
+
+    # === CONFIGURAR SERVICIO ===
+    - name: "Habilitar y iniciar servicio fail2ban"
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: started
+
+    - name: "Reiniciar fail2ban para aplicar configuración"
+      systemd:
+        name: fail2ban
+        state: restarted
+      when: jail_local_created.changed or filter_links_created.changed or jail_links_created.changed
+
+    # === VERIFICACIONES ===
+    - name: "Verificar estado de fail2ban"
+      command: systemctl status fail2ban
+      register: fail2ban_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar jails activas"
+      command: fail2ban-client status
+      register: fail2ban_jails
+      changed_when: false
+      failed_when: false
+
+    - name: "Listar filtros instalados"
+      find:
+        paths: /etc/fail2ban/filter.d
+        patterns: "*dolibarr*.conf,*web-*.conf,*email-*.conf"
+      register: installed_filters
+
+    - name: "Listar jails instaladas"
+      find:
+        paths: /etc/fail2ban/jail.d
+        patterns: "*dolibarr*.conf,*web-*.conf,*email-*.conf"
+      register: installed_jails
+
+    # === CREAR SCRIPT DE MONITOREO ===
+    - name: "Crear script de monitoreo fail2ban"
+      copy:
+        dest: "{{ directories.scripts }}/fail2ban_monitor.sh"
+        content: |
+          #!/bin/bash
+          # Script de monitoreo de Fail2ban para deployment
+          
+          LOG_FILE="/var/log/fail2ban_monitor.log"
+          EMAIL="{{ notifications.email }}"
+          HOSTNAME="{{ deployment_server.hostname }}"
+          
+          # Función para log
+          log_message() {
+              echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+          }
+          
+          # Obtener estadísticas de IPs baneadas
+          BANNED_COUNT=$(fail2ban-client status | grep "Currently banned" | awk '{print $4}' 2>/dev/null || echo "0")
+          
+          # Si hay más de 10 IPs baneadas, reportar
+          if [ "$BANNED_COUNT" -gt 10 ]; then
+              BANNED_LIST=$(fail2ban-client status 2>/dev/null)
+              echo "Alerta: $BANNED_COUNT IPs baneadas en $HOSTNAME\n\n$BANNED_LIST" | \
+                  mail -s "ALERT: Alto número de IPs baneadas" $EMAIL 2>/dev/null
+              log_message "ALERT: $BANNED_COUNT IPs baneadas reportadas"
+          fi
+          
+          # Verificar que fail2ban esté ejecutándose
+          if ! systemctl is-active --quiet fail2ban; then
+              echo "Fail2ban no está ejecutándose en $HOSTNAME" | \
+                  mail -s "CRITICAL: Fail2ban caído" $EMAIL 2>/dev/null
+              log_message "CRITICAL: Fail2ban no está ejecutándose"
+              systemctl restart fail2ban
+          fi
+          
+          log_message "Monitoreo completado - $BANNED_COUNT IPs baneadas"
+        mode: '0755'
+
+    - name: "Configurar cron para monitoreo de Fail2ban"
+      cron:
+        name: "Monitoreo Fail2ban deployment"
+        minute: "*/30"
+        job: "{{ directories.scripts }}/fail2ban_monitor.sh"
+        user: root
+
+    # === MOSTRAR INFORMACIÓN COMPLETA ===
+    - name: "Mostrar información completa de Fail2ban"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN FAIL2BAN COMPLETADA ==="
+          - "Propósito: Protección automática contra ataques y abusos"
+          - "Servidor: SOLO DEPLOYMENT (como especifica la documentación)"
+          - ""
+          - "=== ARCHIVO PRINCIPAL ==="
+          - "jail.local: {{ 'Creado' if jail_local_created.changed else 'Actualizado' }}"
+          - "IPs ignoradas: 127.0.0.1/8 {{ business_ips | default('') }} {{ master_server.ip }}"
+          - "Email destino: {{ notifications.email }}"
+          - ""
+          - "=== REGLAS GENÉRICAS HABILITADAS ==="
+          - "✓ apache-shellshock, php-url-fopen, pam-generic"
+          - "✓ postfix-sasl, mysqld-auth, xinetd-fail"
+          - "✓ apache-badbots, apache-noscript, apache-overflows"
+          - "✓ apache-nohome, apache-botsearch, sshd"
+          - ""
+          - "=== FILTROS SELLYOURSAAS INSTALADOS ==="
+          - "Total filtros: {{ installed_filters.files | length }}"
+          - "✓ email-dol-blacklist, email-dol-perday, email-dol-perhour"
+          - "✓ web-accesslog-limit401/403, web-accesslog-limitapi"
+          - "✓ web-dol-passforgotten, web-dol-bruteforce"
+          - "✓ web-dol-limitpublic, web-dol-registerinstance"
+          - ""
+          - "=== JAILS SELLYOURSAAS INSTALADOS ==="
+          - "Total jails: {{ installed_jails.files | length }}"
+          - "✓ Configuraciones específicas para SellYourSaas habilitadas"
+          - ""
+          - "=== ESTADO DEL SERVICIO ==="
+          - "Estado: {{ 'activo' if 'active' in fail2ban_status.stdout else 'inactivo' }}"
+          - "Jails status: {{ 'OK' if fail2ban_jails.rc == 0 else 'ERROR' }}"
+          - ""
+          - "=== COMANDOS EJECUTADOS ==="
+          - "✓ Creado /etc/fail2ban/jail.local con configuración completa"
+          - "✓ Enlaces simbólicos: cd /etc/fail2ban/filter.d && ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/filter.d/*.conf"
+          - "✓ Enlaces simbólicos: cd /etc/fail2ban/jail.d && ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/etc/fail2ban/jail.d/*.conf"
+          - "✓ systemctl enable fail2ban && systemctl restart fail2ban"
+          - ""
+          - "=== MONITOREO ==="
+          - "Script: {{ directories.scripts }}/fail2ban_monitor.sh"
+          - "Cron: Cada 30 minutos"
+          - "Log: /var/log/fail2ban_monitor.log"
+          - ""
+          - "NOTA: Fail2ban protege contra ataques de fuerza bruta, bots maliciosos,"
+          - "      abuso de APIs y otros patrones de ataque específicos de SellYourSaas."
           filter = apache-noscript
           logpath = /var/log/apache2/*_access.log
           maxretry = 6

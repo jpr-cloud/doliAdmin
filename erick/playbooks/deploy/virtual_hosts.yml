@@ -1,0 +1,54 @@
+# =============================================================================
+# Configuración Virtual Hosts para Deploy Servers
+# Create the directory of the configuration files of the virtual hosts of the instances
+# =============================================================================
+---
+- name: "Configurar directorios para virtual hosts de instancias SellYourSaas"
+  hosts: "{{ target_hosts | default(target) }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === CREAR DIRECTORIOS PARA VIRTUAL HOSTS ===
+    - name: "Crear directorios para configuración de virtual hosts SellYourSaas"
+      file:
+        path: "/etc/apache2/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - sellyoursaas-available
+        - sellyoursaas-online
+        - sellyoursaas-offline
+      register: vhost_directories
+
+    # === CREAR ENLACE SIMBÓLICO PARA VIRTUAL HOSTS HABILITADOS ===
+    - name: "Crear enlace simbólico sellyoursaas-enabled"
+      file:
+        src: /etc/apache2/sellyoursaas-online
+        dest: /etc/apache2/sellyoursaas-enabled
+        state: link
+        force: yes
+      register: vhost_link
+
+    # === VERIFICACIONES ===
+    - name: "Verificar que los directorios fueron creados"
+      stat:
+        path: "/etc/apache2/{{ item }}"
+      register: check_directories
+      loop:
+        - sellyoursaas-available
+        - sellyoursaas-online
+        - sellyoursaas-offline
+        - sellyoursaas-enabled
+
+    - name: "Mostrar resumen de configuración"
+      debug:
+        msg:
+          - "=== DIRECTORIOS VIRTUAL HOSTS CREADOS ==="
+          - "sellyoursaas-available: {{ 'CREADO' if check_directories.results[0].stat.exists else 'ERROR' }}"
+          - "sellyoursaas-online: {{ 'CREADO' if check_directories.results[1].stat.exists else 'ERROR' }}"
+          - "sellyoursaas-offline: {{ 'CREADO' if check_directories.results[2].stat.exists else 'ERROR' }}"
+          - "sellyoursaas-enabled: {{ 'ENLAZADO' if check_directories.results[3].stat.exists else 'ERROR' }}"
+          - "Configuración para instancias SellYourSaas lista"

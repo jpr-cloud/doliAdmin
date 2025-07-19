@@ -1,0 +1,174 @@
+# =============================================================================
+# Instalación Instance Deployment Agent para Deploy Servers
+# Installation of the instance deployment agent (SOLO DEPLOY)
+# =============================================================================
+---
+- name: "Instalación y configuración Instance Deployment Agent SellYourSaas"
+  hosts: "{{ target_hosts | default('deploy') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # === VERIFICAR DIRECTORIO DE SCRIPTS ===
+    - name: "Verificar si existe directorio de scripts SellYourSaas"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts
+      register: scripts_dir
+
+    - name: "Verificar script remote_server_launcher.sh"
+      stat:
+        path: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh
+      register: launcher_script
+
+    - name: "Advertir si falta script de deployment agent"
+      debug:
+        msg: 
+          - "ADVERTENCIA: No se encontró el script remote_server_launcher.sh"
+          - "Asegúrate de ejecutar primero la obtención de archivos Dolibarr/SellYourSaas"
+          - "Ruta esperada: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+      when: not launcher_script.stat.exists
+
+    # === CREAR ENLACE SIMBÓLICO ===
+    - name: "Crear enlace simbólico remote_server_launcher"
+      file:
+        src: /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh
+        dest: /etc/init.d/remote_server_launcher
+        state: link
+        force: yes
+      when: launcher_script.stat.exists
+      register: launcher_link
+
+    # === CREAR ARCHIVO DE SERVICIO SYSTEMD ===
+    - name: "Crear archivo de servicio systemd remote-server-launcher.service"
+      copy:
+        dest: /etc/systemd/system/remote-server-launcher.service
+        content: |
+          # /etc/systemd/system/remote-server-launcher.service
+          [Unit]
+          Description=Remote Server Launcher
+          RequiresMountsFor=/home/admin/wwwroot/dolibarr_documents/sellyoursaas
+
+          [Service]
+          Type=forking
+          ExecStart=/etc/init.d/remote_server_launcher start
+          TimeoutSec=0
+          StandardOutput=tty
+          RemainAfterExit=yes
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+      when: launcher_script.stat.exists
+      register: systemd_service
+
+    # === RECARGAR SYSTEMD ===
+    - name: "Recargar daemon systemd"
+      systemd:
+        daemon_reload: yes
+      when: launcher_link.changed or systemd_service.changed
+
+    # === HABILITAR SERVICIO TRADICIONAL ===
+    - name: "Habilitar remote_server_launcher (init.d)"
+      systemd:
+        name: remote_server_launcher
+        enabled: yes
+      when: launcher_script.stat.exists
+      register: init_service_enabled
+      ignore_errors: yes
+
+    # === HABILITAR SERVICIO SYSTEMD ===
+    - name: "Habilitar remote-server-launcher.service (systemd)"
+      systemd:
+        name: remote-server-launcher.service
+        enabled: yes
+      when: launcher_script.stat.exists
+      register: systemd_service_enabled
+
+    # === VERIFICACIONES ===
+    - name: "Verificar si remote_server_launcher está habilitado"
+      command: systemctl is-enabled remote_server_launcher
+      register: init_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar si remote-server-launcher.service está habilitado"
+      command: systemctl is-enabled remote-server-launcher.service
+      register: systemd_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de remote_server_launcher"
+      command: systemctl status remote_server_launcher
+      register: init_service_status
+      changed_when: false
+      failed_when: false
+
+    - name: "Verificar estado de remote-server-launcher.service"
+      command: systemctl status remote-server-launcher.service
+      register: systemd_service_status
+      changed_when: false
+      failed_when: false
+
+    # === INTENTAR INICIAR EL SERVICIO ===
+    - name: "Iniciar remote-server-launcher.service"
+      systemd:
+        name: remote-server-launcher.service
+        state: started
+      when: launcher_script.stat.exists
+      register: service_start
+      ignore_errors: yes
+
+    # === VERIFICAR PUERTO 8080 ===
+    - name: "Verificar si el puerto 8080 está en uso (deployment agent)"
+      wait_for:
+        port: 8080
+        host: 127.0.0.1
+        timeout: 10
+      register: port_check
+      ignore_errors: yes
+
+    # === MOSTRAR INFORMACIÓN COMPLETA ===
+    - name: "Mostrar información completa del Deployment Agent"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN INSTANCE DEPLOYMENT AGENT COMPLETADA ==="
+          - "Propósito: Agente que escucha en puerto 8080 para recibir órdenes del Master"
+          - "Servidor: SOLO DEPLOYMENT (como especifica la documentación)"
+          - ""
+          - "=== ENLACE SIMBÓLICO ==="
+          - "remote_server_launcher: {{ 'Creado' if launcher_link.changed else ('Disponible' if launcher_script.stat.exists else 'No disponible') }}"
+          - "Ruta: /etc/init.d/remote_server_launcher -> /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+          - ""
+          - "=== SERVICIO SYSTEMD ==="
+          - "Archivo: /etc/systemd/system/remote-server-launcher.service"
+          - "Estado: {{ 'Creado' if systemd_service.changed else ('Disponible' if launcher_script.stat.exists else 'No disponible') }}"
+          - "RequiresMountsFor: /home/admin/wwwroot/dolibarr_documents/sellyoursaas"
+          - ""
+          - "=== ESTADO DE SERVICIOS ==="
+          - "remote_server_launcher (init.d): {{ init_status.stdout | default('No disponible') }}"
+          - "remote-server-launcher.service: {{ systemd_status.stdout | default('No disponible') }}"
+          - ""
+          - "=== ESTADO EN TIEMPO REAL ==="
+          - "Servicio init.d: {{ 'activo' if 'active' in init_service_status.stdout else 'inactivo' }}"
+          - "Servicio systemd: {{ 'activo' if 'active' in systemd_service_status.stdout else 'inactivo' }}"
+          - "Puerto 8080: {{ 'ESCUCHANDO' if port_check.failed is not defined else 'No disponible' }}"
+          - "Inicio automático: {{ 'Exitoso' if service_start.failed is not defined else 'Falló - verificar logs' }}"
+          - ""
+          - "=== COMANDOS EJECUTADOS ==="
+          - "✓ ln -fs /home/admin/wwwroot/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh /etc/init.d/remote_server_launcher"
+          - "✓ Creado /etc/systemd/system/remote-server-launcher.service"
+          - "✓ systemctl daemon-reload"
+          - "✓ systemctl enable remote_server_launcher"
+          - "✓ systemctl enable remote-server-launcher.service"
+          - "✓ systemctl start remote-server-launcher.service"
+          - ""
+          - "=== VERIFICACIONES MANUALES RECOMENDADAS ==="
+          - "systemctl is-enabled remote_server_launcher"
+          - "systemctl is-enabled remote-server-launcher.service"
+          - "systemctl status remote_server_launcher"
+          - "systemctl status remote-server-launcher.service"
+          - "netstat -tulpn | grep :8080"
+          - ""
+          - "NOTA: El agente se ejecuta en puerto 8080 y espera órdenes del servidor Master"
+          - "      para desplegar y gestionar instancias de clientes en este servidor."

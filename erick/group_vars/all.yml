@@ -142,6 +142,11 @@ email:
 notifications:
   email: 'admin@{{ master_server.domain }}'
 
+# === CONFIGURACIÓN SEGURIDAD ===
+# IPs de negocio que no deben ser baneadas por fail2ban
+# Modificar con las IPs reales de tu oficina/administración
+business_ips: '192.168.1.0/24 10.0.0.0/8'  # Ejemplo - CAMBIAR por IPs reales
+
 # === PAQUETES A INSTALAR ===
 ## Tomado desde Dolibarr
 
