@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración de Spamassassin y ClamAV"
-  hosts: "{{ target_hosts | default('all') }}"
+  hosts: "{{ target }}"
   become: true
   gather_facts: yes
 
@@ -18,43 +18,172 @@
           - clamav-freshclam
         state: present
 
+    - name: "Detener servicios ClamAV temporalmente para configuración"
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - clamav-freshclam
+        - clamav-daemon
+      ignore_errors: yes
+
+    - name: "Configurar freshclam"
+      blockinfile:
+        path: /etc/clamav/freshclam.conf
+        create: yes
+        block: |
+          # Database update settings
+          DatabaseMirror database.clamav.net
+          UpdateLogFile /var/log/clamav/freshclam.log
+          LogFileMaxSize 2M
+          LogRotate yes
+          LogVerbose yes
+          
+          # Update frequency (24 times per day)
+          Checks 24
+          
+          # Proxy settings (if needed)
+          # HTTPProxyServer proxy.example.com
+          # HTTPProxyPort 8080
+        marker: "# {mark} ANSIBLE MANAGED FRESHCLAM CONFIG"
+
+    - name: "Configurar clamd"
+      blockinfile:
+        path: /etc/clamav/clamd.conf
+        create: yes
+        block: |
+          # Logging settings
+          LogFile /var/log/clamav/clamav.log
+          LogFileMaxSize 2M
+          LogRotate yes
+          LogVerbose yes
+          
+          # Scan settings
+          MaxFileSize 25M
+          MaxScanSize 100M
+          MaxDirectoryRecursion 15
+          MaxFiles 10000
+          
+          # Performance
+          ReadTimeout 180
+          MaxThreads 12
+        marker: "# {mark} ANSIBLE MANAGED CLAMD CONFIG"
+
+    - name: "Crear directorios de logs para ClamAV"
+      file:
+        path: /var/log/clamav
+        state: directory
+        owner: clamav
+        group: clamav
+        mode: '0755'
+
+    - name: "Configurar permisos de archivos de log"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: clamav
+        group: clamav
+        mode: '0640'
+      loop:
+        - /var/log/clamav/freshclam.log
+        - /var/log/clamav/clamav.log
+
+    - name: "Iniciar y habilitar freshclam"
+      systemd:
+        name: clamav-freshclam
+        state: started
+        enabled: yes
+
+    - name: "Esperar a que freshclam actualice las bases de datos"
+      wait_for:
+        path: /var/lib/clamav/main.cvd
+        timeout: 300
+      ignore_errors: yes
+
+    - name: "Actualizar base de datos manualmente si es necesario"
+      shell: |
+        systemctl stop clamav-freshclam
+        sleep 2
+        freshclam --quiet
+        systemctl start clamav-freshclam
+      register: freshclam_manual
+      when: not ansible_check_mode
+      ignore_errors: yes
+
+    - name: "Iniciar y habilitar ClamAV daemon"
+      systemd:
+        name: clamav-daemon
+        state: started
+        enabled: yes
+
     - name: "Configurar Spamassassin"
       lineinfile:
         path: /etc/default/spamassassin
         regexp: '^ENABLED='
         line: 'ENABLED=1'
         backup: yes
+        create: yes
 
-    - name: "Iniciar y habilitar Spamassassin"
+    - name: "Iniciar y habilitar spamd"
       systemd:
-        name: spamassassin
+        name: spamd
         state: started
         enabled: yes
 
-    - name: "Actualizar base de datos de ClamAV"
-      command: freshclam
-      ignore_errors: yes
-
-    - name: "Iniciar y habilitar ClamAV"
+    - name: "Verificar estado de servicios"
       systemd:
-        name: clamav-daemon
-        state: started
-        enabled: yes
+        name: "{{ item }}"
+      loop:
+        - clamav-freshclam
+        - clamav-daemon
+        - spamd
+      register: services_status
 
-    - name: "Test Spamassassin"
+    - name: "Mostrar estado de servicios"
+      debug:
+        msg: "{{ item.item }}: {{ 'ACTIVO' if item.status.ActiveState == 'active' else 'INACTIVO' }}"
+      loop: "{{ services_status.results }}"
+
+    - name: "Test spamd (después de esperar que inicie)"
       shell: |
         echo "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X" | spamc
       register: spam_test
       changed_when: false
+      retries: 3
+      delay: 5
+      ignore_errors: yes
 
-    - name: "Test ClamAV"
+    - name: "Test ClamAV (después de esperar que inicie)"
       shell: |
         echo "X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*" | clamscan -
       register: clam_test
       changed_when: false
+      retries: 3
+      delay: 5
+      ignore_errors: yes
 
-    - name: "Mostrar resultados tests"
+    - name: "Mostrar resultados de tests"
       debug:
         msg:
-          - "Spamassassin test: {{ 'PASS' if 'X-Spam-Flag: YES' in spam_test.stdout else 'FAIL' }}"
-          - "ClamAV test: {{ 'PASS' if 'FOUND' in clam_test.stdout else 'FAIL' }}"
+          - "Spamassassin test: {{ 'PASS' if spam_test.stdout is defined and 'X-Spam-Flag: YES' in spam_test.stdout else 'FAIL - ' + (spam_test.stderr | default('No output')) }}"
+          - "ClamAV test: {{ 'PASS' if clam_test.stdout is defined and 'FOUND' in clam_test.stdout else 'FAIL - ' + (clam_test.stderr | default('No output')) }}"
+
+    - name: "Configurar logrotate para ClamAV"
+      blockinfile:
+        path: /etc/logrotate.d/clamav
+        create: yes
+        block: |
+          /var/log/clamav/*.log {
+              weekly
+              missingok
+              rotate 12
+              compress
+              delaycompress
+              notifempty
+              create 640 clamav clamav
+              postrotate
+                  systemctl reload clamav-daemon > /dev/null 2>&1 || true
+                  systemctl reload clamav-freshclam > /dev/null 2>&1 || true
+              endscript
+          }
+        marker: "# {mark} ANSIBLE MANAGED CLAMAV LOGROTATE"

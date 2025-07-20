@@ -74,7 +74,7 @@ database:
 database_deploySaas:
   host: '192.168.178.2'
   port: 3306
-  schema: 'deploySaas'  # Base de datos principal como en main.md
+  schema: 'sellyoursaas'  # Base de datos principal como en main.md
   user: 'sellyoursaas'
   password: 'p123p123'
 
@@ -159,6 +159,7 @@ packages_basic:
   - acl
   - snapd
   - ghostscript
+  - mc
 
 packages_database:
   - mariadb-server

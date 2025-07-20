@@ -213,8 +213,8 @@
     - name: "Habilitar sitios de SellYourSaas"
       command: "a2ensite {{ item }}"
       loop:
-        - "admin.{{ master_server.domain }}"
-        - "myaccount.{{ master_server.domain }}"
+        - "admin.{{ domain }}"
+        - "myaccount.{{ domain }}"
       notify: restart apache2
       changed_when: false
 

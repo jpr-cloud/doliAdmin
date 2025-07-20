@@ -10,7 +10,7 @@
   tasks:
     - name: "Descargar paquete Afick"
       get_url:
-        url: "https://sourceforge.net/projects/afick/files/afick/3.7.0/afick_3.7.0-1ubuntu_all.deb/download"
+        url: "https://sourceforge.net/projects/afick/files/afick/3.8.1/afick_3.8.1-1ubuntu_all.deb/download"
         dest: "/tmp/afick.deb"
         mode: '0644'
 

@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración script basic.sh de monitoreo"
-  hosts: "{{ target_hosts | default('all') }}"
+  hosts: "{{ target }}"
   become: true
   gather_facts: yes
 

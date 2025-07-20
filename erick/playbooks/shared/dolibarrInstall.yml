@@ -9,11 +9,11 @@
   tasks:
     - name: Create a symbolic link called sellyoursaas into
       file:
-        src: /home/admin/wwwroot/dolibarr_sellyoursaas
+        src: /home/admin/wwwroot/sellyoursaas
         dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas
         state: link
     - name: Create a symbolic link called main.inc.php into directory myaccount
       file:
         src: /home/admin/wwwroot/dolibarr/htdocs/main.inc.php
-        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount
+        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/main.inc.php
         state: link

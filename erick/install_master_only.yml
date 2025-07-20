@@ -6,7 +6,7 @@
 ---
 - name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
   hosts: master
-  gather_facts: no
+  gather_facts: yes
   tasks:
 
 
@@ -110,10 +110,11 @@
   vars:
     target: master
 
-- name: "FASE 2.12: Configuración AFICK en Master"
+- name: "AFICK"
   import_playbook: playbooks/shared/afick.yml
   vars:
     target: master
+  tags: ['afick']
 
 # TODO: Configuración de Fail2ban
 - name: "[Installation of fail2ban]: Configuración Fail2ban en Master"
@@ -248,11 +249,11 @@
 #  vars:
 #    ansible_limit: master
 #
-#- name: "FASE 20: Script de monitoreo basic.sh"
-#  import_playbook: playbooks/shared/monitor_basic.yml
-#  vars:
-#    ansible_limit: master
-#
+- name: "FASE 20: Script de monitoreo basic.sh"
+  import_playbook: playbooks/shared/monitor_basic.yml
+  vars:
+    target: master
+
 #- name: "FASE 21: SSL wildcard personalizado"
 #  import_playbook: playbooks/shared/ssl_wildcard.yml
 #  vars:
