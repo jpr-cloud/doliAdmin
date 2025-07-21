@@ -23,6 +23,51 @@
       notify: restart apache2
       changed_when: false
 
+    # ...existing code...
+    - name: "Verificar que el usuario admin existe"
+      user:
+        name: "{{ system_users.admin }}"
+        state: present
+        shell: /bin/bash
+        home: "/home/{{ system_users.admin }}"
+        create_home: yes
+
+    - name: "Verificar que el grupo admin existe"
+      group:
+        name: "{{ system_users.admin }}"
+        state: present
+
+    - name: "Agregar www-data al grupo admin"
+      user:
+        name: www-data
+        groups: "{{ system_users.admin }}"
+        append: yes
+      register: www_data_group_result
+
+    - name: "Mostrar resultado de agregar www-data al grupo"
+      debug:
+        msg: "www-data agregado al grupo {{ system_users.admin }}: {{ 'EXITOSO' if www_data_group_result.changed else 'YA ESTABA EN EL GRUPO' }}"
+
+    - name: "Verificar membresía de grupos"
+      command: "groups www-data"
+      register: www_data_groups
+      changed_when: false
+
+    - name: "Mostrar grupos de www-data"
+      debug:
+        msg: "Grupos de www-data: {{ www_data_groups.stdout }}"
+
+    - name: "Habilitar módulos de Apache"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      register: apache_module_result
+      ignore_errors: yes
+      notify: restart apache2
+
+# ...existing code...
+
 # Create the file /etc/apache2/.htpasswd with
 #    - name: 'Create the file /etc/apache2/.htpasswd with'
 #      expect:
@@ -70,7 +115,7 @@
           #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
           #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
           #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f webmaster@mysaasdomainname.com"
-          php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/dolibarr/htdocs:/usr/share/GeoIP:{{ directories.jail }}
+          php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/dolibarr/htdocs:/usr/share/GeoIP:{{ directories.jail }}::{{ directories.wwwroot }}/dolibarr_documents:{{ directories.wwwroot }}/sellyoursaas/:/home/{{ system_users.admin }}/tools/maxmind/
           <VirtualHost *:80>
               ServerName admin.{{ domain }}
               DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs
@@ -123,7 +168,7 @@
                 Satisfy any
               </Files>
 
-              <Directory /home/admin/wwwroot>
+              <Directory /home/{{ system_users.admin }}/wwwroot>
                 AllowOverride FileInfo Limit
                 Options +FollowSymLinks
                 Order allow,deny
@@ -166,27 +211,26 @@
               #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
               #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
               #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f postmaster@mysaasdomainname.com"
-              php_admin_value open_basedir /tmp/:/home/admin/wwwroot/:/usr/share/GeoIP:/home/admin/tools/
-              
+              php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/:/usr/share/GeoIP:/home/admin/tools/:{{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount/:{{ directories.wwwroot }}/dolibarr_documents/:/home/{{ system_users.admin }}/tools/maxmind/
               UseCanonicalName On
               ServerName   myaccount.{{ domain }}
-              ErrorLog     /home/admin/logs/myaccount_error_log
-              CustomLog    /home/admin/logs/myaccount_access_log combined
+              ErrorLog     /home/{{ system_users.admin }}/logs/myaccount_error_log
+              CustomLog    /home/{{ system_users.admin }}/logs/myaccount_access_log combined
 
               DocumentRoot {{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount
 
               # To access files of myaccount
               <Directory {{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount>
-              AllowOverride FileInfo Options
-              Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
-              Require all granted
+                AllowOverride FileInfo Options
+                Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+                Require all granted
               </Directory>
 
               # To access images
               <Directory {{ directories.wwwroot }}/dolibarr_documents>
-              AllowOverride FileInfo Options
-              Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
-              Require all granted
+                AllowOverride FileInfo Options
+                Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+                Require all granted
               </Directory>
 
               AddOutputFilterByType DEFLATE text/html text/plain text/xml

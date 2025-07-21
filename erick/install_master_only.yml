@@ -249,10 +249,17 @@
 #  vars:
 #    ansible_limit: master
 #
-- name: "FASE 20: Script de monitoreo basic.sh"
+- name: "monitoreo"
   import_playbook: playbooks/shared/monitor_basic.yml
   vars:
     target: master
+  tags: ['monitor']
+
+- name: geoip
+  import_playbook: playbooks/shared/geoip.yml
+  vars:
+    target: master
+  tags: ['geoip']
 
 #- name: "FASE 21: SSL wildcard personalizado"
 #  import_playbook: playbooks/shared/ssl_wildcard.yml

@@ -38,49 +38,27 @@ bind-address = 0.0.0.0
 systemctl restart mariadb
 ```
 
-El siguiente paso no se si debemos hacerlo, lo pongo por si se necesita después.
+Configurar el usuario y los permisos en la base de datos
 
 ```mysql
-SET PASSWORD FOR 'root'@'localhost' = PASSWORD('p123p123');
--- For some old versions of mariadb, you may also need to do:
--- UPDATE mysql.user SET authentication_string = PASSWORD('mysqlrootpassword') WHERE user='root';
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'mysqlrootpassword';
 
+CREATE DATABASE IF NOT EXISTS sellyoursaas;
+
+GRANT CREATE, CREATE TEMPORARY TABLES, CREATE VIEW, DROP, DELETE, INSERT, SELECT, UPDATE, ALTER, INDEX, REFERENCES, SHOW VIEW ON *.* TO sellyoursaas@localhost  IDENTIFIED BY 'p123p123';
+
+GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON sellyoursaas.* TO 'sellyoursaas'@'92.168.178.3' IDENTIFIED BY 'p123p123';
 FLUSH PRIVILEGES;
 ```
 
-> Secure the root account
+### Installation of Geoip2
 
-```mysql
--- For MariaDb: The plugin is unix_socket and is set by default on Ubuntu OS. Así que no se necesita
--- INSTALL PLUGIN auth_socket SONAME 'auth_socket.so';
-SELECT PLUGIN_NAME, PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS;
+```bash
+mkdir /home/admin/tools/maxmind/ -p
+cd /home/admin/tools/maxmind/
+wget https://cdn.jsdelivr.net/npm/geolite2-country@1.0.2/GeoLite2-Country.mmdb.gz
+gunzip GeoLite2-Country.mmdb.gz 
 
-ALTER USER 'root'@'localhost' IDENTIFIED BY 'p123p123';
-
-```
-
-Create a user sellyoursaas to control databases of user instances
-On the Master server and on each Deployment server, grant access localy to the login sellyoursaas:
-
-```mysql
-CREATE USER 'sellyoursaas'@'localhost' IDENTIFIED BY 'p123p123';
-
-GRANT CREATE USER, GRANT OPTION, RELOAD, LOCK TABLES, REPLICATION CLIENT ON *.* TO 'sellyoursaas'@'localhost';
-
-GRANT CREATE, CREATE TEMPORARY TABLES, CREATE VIEW, DROP, DELETE, INSERT, SELECT, UPDATE, ALTER, INDEX, REFERENCES, SHOW VIEW ON *.* TO 'sellyoursaas'@'localhost';
-
-FLUSH PRIVILEGES;
-
-```
-
-Give permission, on the Master server, to the account sellyoursaas for each deployment server, on the database dolibarr (so the mysql client on the deployment server can connect to the database):
-
-```mysql
--- (password is the one into /etc/sellyoursaas.conf of the deployment server)
-CREATE USER 'sellyoursaas'@'192.168.178.3' IDENTIFIED BY 'p123p123';
-GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON sellyoursaas.* TO 'sellyoursaas'@'92.168.178.3';
-
-FLUSH PRIVILEGES;
 ```
 
 `git clone https://github.com/jpr-cloud/doliAdmin.git`

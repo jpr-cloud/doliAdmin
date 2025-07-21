@@ -54,24 +54,24 @@
 ## Clonando SellYourSaas
     - name: "Verificar si SellYourSaas ya está clonado"
       stat:
-        path: "/home/{{ system_users.admin }}/wwwroot/sellyoursaas"
+        path: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
       register: sellyoursaas_exists
 
     - name: "Limpiar directorio SellYourSaas si existe (para reclonado)"
       file:
-        path: "/home/{{ system_users.admin }}/wwwroot/sellyoursaas"
+        path: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
         state: absent
       when: sellyoursaas_exists.stat.exists and (force_reclone | default(false))
 
     - name: "Configurando Git safe directory para SellYourSaas"
       ansible.builtin.command:
-        cmd: git config --global --add safe.directory /home/{{ system_users.admin }}/wwwroot/sellyoursaas
+        cmd: git config --global --add safe.directory /home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas
       become_user: "{{ system_users.admin }}"
 
     - name: "Clonando SellYourSaas desde {{ sellyoursaas.repo }} "
       ansible.builtin.git:
         repo: "{{ sellyoursaas.repo }}"
-        dest: "/home/{{ system_users.admin }}/wwwroot/sellyoursaas"
+        dest: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
         force: yes
         update: yes
       become_user: "{{ system_users.admin }}"
@@ -80,7 +80,7 @@
     - name: "Actualizar SellYourSaas si ya existe"
       ansible.builtin.git:
         repo: "{{ sellyoursaas.repo }}"
-        dest: "/home/{{ system_users.admin }}/wwwroot/sellyoursaas"
+        dest: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
         update: yes
       become_user: "{{ system_users.admin }}"
       when: sellyoursaas_exists.stat.exists and not (force_reclone | default(false))
@@ -95,7 +95,7 @@
 
     - name: "Configurar permisos para SellYourSaas"
       file:
-        path: "/home/{{ system_users.admin }}/wwwroot/sellyoursaas"
+        path: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
         owner: "{{ system_users.admin }}"
         group: www-data
         mode: '0755'
@@ -106,4 +106,4 @@
         msg: |
           Repositorios clonados en:
           - Dolibarr: /home/{{ system_users.admin }}/wwwroot/dolibarr
-          - SellYourSaas: /home/{{ system_users.admin }}/wwwroot/sellyoursaas
+          - SellYourSaas: /home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas
