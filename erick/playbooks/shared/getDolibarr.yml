@@ -8,6 +8,13 @@
   gather_facts: yes
 
   tasks:
+    - name: "Instalar git si no está presente" # solo si no tiene Git instalado
+      apt:
+        name: git
+        state: present
+      become: true
+      when: ansible_facts.packages['git'] is not defined
+
     - name: "Crear directorio wwwroot si no existe"
       file:
         path: "/home/{{ system_users.admin }}/wwwroot"

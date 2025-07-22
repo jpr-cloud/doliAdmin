@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: 'Crear directorios de trabajo'
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 

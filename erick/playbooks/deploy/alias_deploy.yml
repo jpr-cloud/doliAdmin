@@ -1,0 +1,23 @@
+# =============================================================================
+# Añadir alias y configuración HISTIGNORE en /etc/bash.bashrc para deployment
+# =============================================================================
+---
+- name: 'Añadir alias y configuración HISTIGNORE en /etc/bash.bashrc'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: no
+
+  tasks:
+    - name: 'Añadir alias psld al final de /etc/bash.bashrc'
+      lineinfile:
+        path: /etc/bash.bashrc
+        line: "alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'"
+        insertafter: EOF
+        state: present
+
+    - name: 'Añadir HISTIGNORE al final de /etc/bash.bashrc'
+      lineinfile:
+        path: /etc/bash.bashrc
+        line: "HISTIGNORE='-*'"
+        insertafter: EOF
+        state: present 

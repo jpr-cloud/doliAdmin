@@ -1,0 +1,75 @@
+# =============================================================================
+# Adición de sistema de archivos para logs en /mnt/disklog (opcional)
+# =============================================================================
+---
+- name: 'Adición de sistema de archivos para logs en /mnt/disklog'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    log_disk_device: "/dev/sdb"   # Cambia esto si el dispositivo es diferente
+    log_mount_point: "/mnt/disklog"
+    log_disk_size_mb: 500
+    apache_envvars: "/etc/apache2/envvars"
+    admin_logs_dir: "/home/admin/logs"
+
+  tasks:
+    - name: 'Crear sistema de archivos ext4 en el disco para logs (si no existe)'
+      filesystem:
+        fstype: ext4
+        dev: "{{ log_disk_device }}"
+      ignore_errors: yes
+
+    - name: 'Crear punto de montaje para logs'
+      file:
+        path: "{{ log_mount_point }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: 'Montar el disco de logs'
+      mount:
+        path: "{{ log_mount_point }}"
+        src: "{{ log_disk_device }}"
+        fstype: ext4
+        state: mounted
+        opts: defaults
+      ignore_errors: yes
+
+    - name: 'Asegurar que el montaje persista en /etc/fstab'
+      mount:
+        path: "{{ log_mount_point }}"
+        src: "{{ log_disk_device }}"
+        fstype: ext4
+        opts: defaults
+        state: present
+      ignore_errors: yes
+
+    - name: 'Modificar APACHE_LOG_DIR en /etc/apache2/envvars'
+      lineinfile:
+        path: "{{ apache_envvars }}"
+        regexp: '^export APACHE_LOG_DIR='
+        line: 'export APACHE_LOG_DIR={{ log_mount_point }}'
+        state: present
+        backrefs: yes
+
+    - name: 'Eliminar el directorio de logs de admin si existe'
+      file:
+        path: "{{ admin_logs_dir }}"
+        state: absent
+        force: yes
+      ignore_errors: yes
+
+    - name: 'Crear enlace simbólico de /home/admin/logs a /mnt/disklog'
+      file:
+        src: "{{ log_mount_point }}"
+        dest: "{{ admin_logs_dir }}"
+        state: link
+        force: yes
+
+    - name: 'Reiniciar Apache para aplicar cambios de logs'
+      service:
+        name: apache2
+        state: restarted 
