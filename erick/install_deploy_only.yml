@@ -1,39 +1,25 @@
 # =============================================================================
-# INSTALACIÓN  SERVIDOR DEPLOYMENT
+# INSTALACIÓN SOLO SERVIDOR MASTER
 # =============================================================================
-# Este playbook configura el o los servidores de deployment
-# PREREQUISITO: El servidor master debe estar ya instalado y funcionando
+# Este playbook instala únicamente el servidor master de SellYourSaas
 # =============================================================================
 ---
-- name: "=== INSTALACIÓN DEPLOYMENT SERVER ==="
-  hosts: '{{ target }}'
-  gather_facts: no
+- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+  hosts: deploy
+  gather_facts: yes
   tasks:
-    - name: "Mostrar información de instalación Deployment"
-      debug:
-        msg:
-          - "=========================================="
-          - "  INSTALACIÓN SERVIDOR DEPLOYMENT"
-          - "=========================================="
-          - "Deploy Server: {{ deployment_server.hostname }} ({{ deployment_server.ip }})"
-          - "Master Server: {{ master_server.hostname }} ({{ master_server.ip }})"
-          - "Dominio Deploy: {{ deployment_server.domain }}"
-          - "=========================================="
 
-    - name: "Verificar conectividad con Master"
-      ping:
-        data: "test"
-      delegate_to: "{{ master_server.ip }}"
-      ignore_errors: yes
-      register: master_connectivity
-
-    - name: "Advertencia si no hay conectividad con Master"
-      debug:
-        msg:
-          - "⚠️  ADVERTENCIA: No se puede conectar con el servidor Master"
-          - "   Asegúrate de que el Master esté instalado y funcionando"
-          - "   IP Master: {{ master_server.ip }}"
-      when: master_connectivity.failed is defined and master_connectivity.failed
+# =============================================================================
+# CONFIGURACIÓN DE HOSTNAME MASTER
+# =============================================================================
+- name: "Configuración de hostname Master"
+  hosts: deploy
+  become: true
+  tasks:
+    - name: "Configurar hostname del servidor Master"
+      include_tasks: playbooks/shared/sethostname_tasks.yml
+      vars:
+        hostname_main: "{{ target }}"
 
 # =============================================================================
 # CONFIGURACIÓN BÁSICA DEPLOYMENT
@@ -44,84 +30,37 @@
     ansible_limit: deploy
 
 # =============================================================================
-# CONFIGURACIÓN ESPECÍFICA DEPLOYMENT
+# Modify the default shell to use bash
 # =============================================================================
-- name: "FASE 2.1: Configuración SSH y usuarios en Deploy"
-  hosts: '{{host}}'
+- name: "Modify the default shell to use bash"
+  import_playbook: playbooks/deploy/default_shell.yml
+  vars:
+    default_shell_path: "/bin/bash"
+    default_sh_link: "/bin/sh"
+
+# =============================================================================
+# 'Unix personal sysadmin account': Creación del usuario Unix Personal Sysadmin 
+# =============================================================================
+- name: "Creación del usuario Unix Personal Sysadmin"
+  import_playbook: playbooks/shared/UnixPersonalSysadminAccount.yml
+  vars:
+    target: deploy
+
+# =============================================================================
+# 'Unix admin account':Creación del usuario admin y directorios de trabajo
+# =============================================================================
+- name: "Creación del usuario admin y directorios de trabajo"
+  import_playbook: playbooks/shared/UnixAdminAccount.yml
+  vars:
+    target: deploy
+
+# =============================================================================
+# 'SSH setup' Solo para deployment
+# =============================================================================
+- name: "SSH setup"
   import_playbook: playbooks/deploy/ssh_sudo.yml
-
-- name: "FASE 2.2: Configuración usuario myunixlogin"
-  import_playbook: playbooks/deploy/myunixlogin.yml
-
-- name: "FASE 2.3: Configuración NFS Cliente en Deploy"
-  import_playbook: playbooks/deploy/nfs_deploy.yml
-
-- name: "FASE 2.3: Configuración PHP en Deploy"
-  import_playbook: playbooks/shared/php_config.yml
   vars:
-    ansible_limit: deploy
-
-- name: "FASE 2.4: Configuración Apache en Deploy"
-  import_playbook: playbooks/deploy/apache_deploy.yml
-
-- name: "FASE 2.5: Configuración Fail2ban en Deploy"
-  import_playbook: playbooks/deploy/fail2ban_deploy.yml
-
-- name: "FASE 2.6: Configuración SSL/Certbot en Deploy"
-  import_playbook: playbooks/shared/certbot.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 2.7: Configuración Dolibarr Templates en Deploy"
-  import_playbook: playbooks/deploy/dolibarr_deploy.yml
-
-- name: "FASE 2.8: Configuración Logrotate en Deploy"
-  import_playbook: playbooks/shared/logrotate.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 2.9: Configuración de discos y montajes"
-  import_playbook: playbooks/shared/disk_management.yml
-
-- name: "FASE 2.10: Configuración shell por defecto"
-  import_playbook: playbooks/shared/default_shell.yml
-
-- name: "FASE 2.11: Eliminación archivos información login"
-  import_playbook: playbooks/deploy/del_info_login.yml
-
-- name: "FASE 2.12: Configuración plantilla /etc/skel"
-  import_playbook: playbooks/deploy/skel_template.yml
-
-- name: "FASE 2.13: Configuración alias del sistema"
-  import_playbook: playbooks/deploy/deploy_alias.yml
-
-- name: "FASE 2.14: Configuración UID máximo"
-  import_playbook: playbooks/deploy/increase_uid.yml
-
-- name: "FASE 2.15: Configuración AppArmor"
-  import_playbook: playbooks/deploy/apparmor_deploy.yml
-
-- name: "FASE 2.16: Configuración Jailkit (Opcional)"
-  import_playbook: playbooks/deploy/jailkit_deploy.yml
-
-- name: "FASE 2.17: Habilitar generación PNG desde PDF"
-  import_playbook: playbooks/deploy/allow_png_gen.yml
-
-- name: "FASE 2.18: Configuración Cron específico en Deploy"
-  import_playbook: playbooks/deploy/cron_deploy.yml
-
-- name: "FASE 2.19: Configuración Cron general en Deploy"
-  import_playbook: playbooks/shared/cron.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 2.20: Configuración AFICK en Deploy"
-  import_playbook: playbooks/shared/afick.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 2.21: Configuración Watchdog en Deploy"
-  import_playbook: playbooks/deploy/watchdog_deploy.yml
+    target: deploy
 
 # =============================================================================
 # VERIFICACIÓN DEPLOYMENT
@@ -160,7 +99,6 @@
       register: nfs_mount_result
 
     - name: "Verificar conectividad con base de datos Master"
-      command: >
         mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} 
         -e "SELECT 1"
       register: db_connectivity

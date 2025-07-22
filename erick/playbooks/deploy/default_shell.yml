@@ -1,0 +1,9 @@
+---
+- name: "Forzar que /bin/sh apunte a bash (enlace simbólico)"
+  become: true
+  file:
+    src: "{{ default_shell_path | default('/bin/bash') }}"
+    dest: "{{ default_sh_link | default('/bin/sh') }}"
+    state: link
+    force: true
+  tags: ['default_shell'] 

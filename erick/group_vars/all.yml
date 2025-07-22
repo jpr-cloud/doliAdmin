@@ -393,3 +393,7 @@ blacklist_files:
   - blacklistip
   - blacklistfrom
   - blacklistcontent
+
+# === SHELL POR DEFECTO (DEPLOYMENT) ===
+default_shell_path: '/bin/bash'
+default_sh_link: '/bin/sh'
