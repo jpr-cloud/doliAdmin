@@ -6,14 +6,373 @@
   hosts: '{{ target }}'
   become: true
   gather_facts: yes
+  vars:
+    wwwroot_dir: "{{ directories.wwwroot }}"
+    dolibarr_dir: "{{ wwwroot_dir }}/dolibarr"
+    dolibarr_sellyoursaas_dir: "{{ wwwroot_dir }}/dolibarr_sellyoursaas"
+    custom_dir: "{{ dolibarr_dir }}/htdocs/custom"
+    sellyoursaas_custom_dir: "{{ custom_dir }}/sellyoursaas"
+    myaccount_dir: "{{ sellyoursaas_custom_dir }}/myaccount"
+    scope: '{{ scope | default("deploy") }}'  # Default to 'deploy' if not set
+
   tasks:
-    - name: Create a symbolic link called sellyoursaas into
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que los directorios base existen"
+      stat:
+        path: "{{ item }}"
+      register: base_dirs_check
+      loop:
+        - "{{ dolibarr_dir }}/htdocs"
+        - "{{ dolibarr_sellyoursaas_dir }}"
+
+    - name: "Mostrar estado de directorios base"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ base_dirs_check.results }}"
+
+    - name: "Fallar si los directorios base no existen"
+      fail:
+        msg: "Directorio requerido no existe: {{ item.item }}"
+      loop: "{{ base_dirs_check.results }}"
+      when: not item.stat.exists
+
+    - name: "Crear directorio custom si no existe"
       file:
-        src: /home/admin/wwwroot/sellyoursaas
-        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas
-        state: link
-    - name: Create a symbolic link called main.inc.php into directory myaccount
+        path: "{{ custom_dir }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+
+    - name: "Crear directorio myaccount si no existe"
       file:
-        src: /home/admin/wwwroot/dolibarr/htdocs/main.inc.php
-        dest: /home/admin/wwwroot/dolibarr/htdocs/custom/sellyoursaas/myaccount/main.inc.php
+        path: "{{ myaccount_dir }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS SEGÚN DOCUMENTACIÓN
+    # =============================================================================
+    - name: "Crear enlace simbólico sellyoursaas en custom (CORREGIDO)"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}"
+        dest: "{{ sellyoursaas_custom_dir }}"
         state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Crear enlace simbólico source en directorio myaccount (NUEVO)"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs"
+        dest: "{{ myaccount_dir }}/source"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Crear enlace simbólico main.inc.php en directorio myaccount"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs/main.inc.php"
+        dest: "{{ myaccount_dir }}/main.inc.php"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar enlaces simbólicos creados"
+      stat:
+        path: "{{ item }}"
+      register: symlinks_check
+      loop:
+        - "{{ sellyoursaas_custom_dir }}"
+        - "{{ myaccount_dir }}/source"
+        - "{{ myaccount_dir }}/main.inc.php"
+
+    - name: "Mostrar estado de enlaces simbólicos"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }} ({{ 'ENLACE' if item.stat.islnk is defined and item.stat.islnk else 'ARCHIVO/DIRECTORIO' }})"
+      loop: "{{ symlinks_check.results }}"
+
+    - name: "Verificar destinos de enlaces simbólicos"
+      shell: "ls -la {{ item }}"
+      register: symlink_details
+      loop:
+        - "{{ sellyoursaas_custom_dir }}"
+        - "{{ myaccount_dir }}/source"
+        - "{{ myaccount_dir }}/main.inc.php"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar detalles de enlaces simbólicos"
+      debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ symlink_details.results }}"
+      when: item.stdout is defined
+
+    # =============================================================================
+    # VERIFICAR ESTRUCTURA FINAL
+    # =============================================================================
+    - name: "Verificar estructura del directorio custom"
+      shell: "find {{ custom_dir }} -type l -ls"
+      register: custom_structure
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar estructura de custom"
+      debug:
+        msg:
+          - "=== ESTRUCTURA DEL DIRECTORIO CUSTOM ==="
+          - "{{ custom_structure.stdout_lines | default(['No hay enlaces simbólicos']) }}"
+          - "========================================"
+
+    - name: "Verificar contenido del directorio myaccount"
+      shell: "ls -la {{ myaccount_dir }}/"
+      register: myaccount_content
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar contenido de myaccount"
+      debug:
+        msg:
+          - "=== CONTENIDO DE MYACCOUNT ==="
+          - "{{ myaccount_content.stdout_lines | default(['Directorio vacío']) }}"
+          - "=============================="
+
+    # =============================================================================
+    # PROBAR ACCESO A ENLACES
+    # =============================================================================
+    - name: "Probar acceso al enlace sellyoursaas"
+      shell: "test -d {{ sellyoursaas_custom_dir }} && echo 'OK' || echo 'ERROR'"
+      register: sellyoursaas_test
+      changed_when: false
+
+    - name: "Probar acceso al enlace source"
+      shell: "test -d {{ myaccount_dir }}/source && echo 'OK' || echo 'ERROR'"
+      register: source_test
+      changed_when: false
+
+    - name: "Probar acceso al enlace main.inc.php"
+      shell: "test -f {{ myaccount_dir }}/main.inc.php && echo 'OK' || echo 'ERROR'"
+      register: mainincphp_test
+      changed_when: false
+
+    - name: "Mostrar resultados de pruebas de acceso"
+      debug:
+        msg:
+          - "=== PRUEBAS DE ACCESO ==="
+          - "sellyoursaas: {{ sellyoursaas_test.stdout }}"
+          - "source: {{ source_test.stdout }}"
+          - "main.inc.php: {{ mainincphp_test.stdout }}"
+          - "========================="
+    # ...existing code...
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS SEGÚN DOCUMENTACIÓN
+    # =============================================================================
+    - name: "Crear enlace simbólico sellyoursaas en custom (CORREGIDO)"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}"
+        dest: "{{ sellyoursaas_custom_dir }}"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Crear enlace simbólico source en directorio myaccount (NUEVO)"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs"
+        dest: "{{ myaccount_dir }}/source"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Crear enlace simbólico main.inc.php en directorio myaccount"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs/main.inc.php"
+        dest: "{{ myaccount_dir }}/main.inc.php"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    # =============================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA DEPLOYMENT SERVERS
+    # =============================================================================
+    - name: "Crear directorio conf para servidores deployment"
+      file:
+        path: "{{ dolibarr_dir }}/htdocs/conf"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+      when: scope is defined and scope == 'deploy'
+
+    - name: "Crear archivo conf.php para servidores deployment"
+      copy:
+        dest: "{{ dolibarr_dir }}/htdocs/conf/conf.php"
+        content: |
+          <?php
+          $dolibarr_main_document_root='{{ dolibarr_dir }}/htdocs';
+          $dolibarr_main_data_root='{{ wwwroot_dir }}/dolibarr_documents';
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0644'
+        backup: yes
+      when: scope is defined and scope == 'deploy'
+
+    - name: "Verificar archivo conf.php creado"
+      stat:
+        path: "{{ dolibarr_dir }}/htdocs/conf/conf.php"
+      register: conf_php_check
+      when: scope is defined and scope == 'deploy'
+
+    - name: "Mostrar contenido del archivo conf.php"
+      shell: "cat {{ dolibarr_dir }}/htdocs/conf/conf.php"
+      register: conf_php_content
+      changed_when: false
+      when: 
+        - scope is defined and scope == 'deploy'
+        - conf_php_check.stat.exists
+
+    - name: "Mostrar configuración conf.php para deployment"
+      debug:
+        msg:
+          - "=== ARCHIVO CONF.PHP PARA DEPLOYMENT ==="
+          - "Archivo: {{ dolibarr_dir }}/htdocs/conf/conf.php"
+          - "Contenido:"
+          - "{{ conf_php_content.stdout_lines | default(['Error leyendo archivo']) }}"
+          - "========================================"
+      when: 
+        - scope is defined and scope == 'deploy'
+        - conf_php_content is defined
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar enlaces simbólicos creados"
+      stat:
+        path: "{{ item }}"
+      register: symlinks_check
+      loop:
+        - "{{ sellyoursaas_custom_dir }}"
+        - "{{ myaccount_dir }}/source"
+        - "{{ myaccount_dir }}/main.inc.php"
+
+    - name: "Mostrar estado de enlaces simbólicos"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }} ({{ 'ENLACE' if item.stat.islnk is defined and item.stat.islnk else 'ARCHIVO/DIRECTORIO' }})"
+      loop: "{{ symlinks_check.results }}"
+
+    - name: "Verificar destinos de enlaces simbólicos"
+      shell: "ls -la {{ item }}"
+      register: symlink_details
+      loop:
+        - "{{ sellyoursaas_custom_dir }}"
+        - "{{ myaccount_dir }}/source"
+        - "{{ myaccount_dir }}/main.inc.php"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar detalles de enlaces simbólicos"
+      debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ symlink_details.results }}"
+      when: item.stdout is defined
+
+    # =============================================================================
+    # VERIFICAR ESTRUCTURA FINAL
+    # =============================================================================
+    - name: "Verificar estructura del directorio custom"
+      shell: "find {{ custom_dir }} -type l -ls"
+      register: custom_structure
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar estructura de custom"
+      debug:
+        msg:
+          - "=== ESTRUCTURA DEL DIRECTORIO CUSTOM ==="
+          - "{{ custom_structure.stdout_lines | default(['No hay enlaces simbólicos']) }}"
+          - "========================================"
+
+    - name: "Verificar contenido del directorio myaccount"
+      shell: "ls -la {{ myaccount_dir }}/"
+      register: myaccount_content
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar contenido de myaccount"
+      debug:
+        msg:
+          - "=== CONTENIDO DE MYACCOUNT ==="
+          - "{{ myaccount_content.stdout_lines | default(['Directorio vacío']) }}"
+          - "=============================="
+
+    # =============================================================================
+    # PROBAR ACCESO A ENLACES
+    # =============================================================================
+    - name: "Probar acceso al enlace sellyoursaas"
+      shell: "test -d {{ sellyoursaas_custom_dir }} && echo 'OK' || echo 'ERROR'"
+      register: sellyoursaas_test
+      changed_when: false
+
+    - name: "Probar acceso al enlace source"
+      shell: "test -d {{ myaccount_dir }}/source && echo 'OK' || echo 'ERROR'"
+      register: source_test
+      changed_when: false
+
+    - name: "Probar acceso al enlace main.inc.php"
+      shell: "test -f {{ myaccount_dir }}/main.inc.php && echo 'OK' || echo 'ERROR'"
+      register: mainincphp_test
+      changed_when: false
+
+    - name: "Mostrar resultados de pruebas de acceso"
+      debug:
+        msg:
+          - "=== PRUEBAS DE ACCESO ==="
+          - "sellyoursaas: {{ sellyoursaas_test.stdout }}"
+          - "source: {{ source_test.stdout }}"
+          - "main.inc.php: {{ mainincphp_test.stdout }}"
+          - "========================="
+
+    # =============================================================================
+    # MOSTRAR RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de instalación de Dolibarr framework"
+      debug:
+        msg:
+          - "=== INSTALACIÓN DOLIBARR FRAMEWORK COMPLETADA ==="
+          - "Tipo: {{ 'DEPLOYMENT SERVER' if (scope is defined and scope == 'deploy') else 'MASTER/STANDARD SERVER' }}"
+          - ""
+          - "Enlaces simbólicos creados:"
+          - "1. {{ sellyoursaas_custom_dir }} -> {{ dolibarr_sellyoursaas_dir }}"
+          - "2. {{ myaccount_dir }}/source -> {{ dolibarr_dir }}/htdocs"
+          - "3. {{ myaccount_dir }}/main.inc.php -> {{ dolibarr_dir }}/htdocs/main.inc.php"
+          - "{{ '4. Archivo conf.php creado en ' + dolibarr_dir + '/htdocs/conf/' if (scope is defined and scope == 'deploy') else '' }}"
+          - ""
+          - "Comandos equivalentes ejecutados:"
+          - "ln -fs {{ dolibarr_sellyoursaas_dir }} {{ sellyoursaas_custom_dir }}"
+          - "ln -fs {{ dolibarr_dir }}/htdocs {{ myaccount_dir }}/source"
+          - "ln -fs {{ dolibarr_dir }}/htdocs/main.inc.php {{ myaccount_dir }}/main.inc.php"
+          - "================================================="
+
+    - name: "Mostrar comandos para verificación manual"
+      debug:
+        msg:
+          - "=== COMANDOS PARA VERIFICACIÓN ==="
+          - "Ver enlaces: ls -la {{ custom_dir }}/"
+          - "Ver myaccount: ls -la {{ myaccount_dir }}/"
+          - "Verificar sellyoursaas: ls {{ sellyoursaas_custom_dir }}/"
+          - "Verificar source: ls {{ myaccount_dir }}/source/"
+          - "Verificar main.inc.php: cat {{ myaccount_dir }}/main.inc.php | head -5"
+          - "{{ 'Ver conf.php: cat ' + dolibarr_dir + '/htdocs/conf/conf.php' if (scope is defined and scope == 'deploy') else '' }}"
+          - "================================="

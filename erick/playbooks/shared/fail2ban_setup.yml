@@ -1,0 +1,473 @@
+# =============================================================================
+# Installation and configuration of fail2ban
+# =============================================================================
+# Este playbook instala y configura fail2ban con reglas genéricas y específicas
+# de SellYourSaas, diferenciando entre servidores master y deployment
+# =============================================================================
+---
+- name: "Installation and configuration of fail2ban"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    dolibarr_sellyoursaas_dir: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+    fail2ban_filter_dir: "/etc/fail2ban/filter.d"
+    fail2ban_jail_dir: "/etc/fail2ban/jail.d"
+
+  tasks:
+    # =============================================================================
+    # INSTALACIÓN DE FAIL2BAN
+    # =============================================================================
+    - name: "Instalar fail2ban"
+      apt:
+        name: fail2ban
+        state: present
+        update_cache: yes
+
+    - name: "Verificar instalación de fail2ban"
+      systemd:
+        name: fail2ban
+      register: fail2ban_status
+
+    - name: "Mostrar estado de fail2ban"
+      debug:
+        msg: "Fail2ban status: {{ fail2ban_status.status.ActiveState | default('unknown') }}"
+
+    # =============================================================================
+    # CREAR DIRECTORIOS DE LOG NECESARIOS
+    # =============================================================================
+    - name: "Crear directorio de logs MySQL"
+      file:
+        path: /var/log/mysql
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: '0750'
+
+    - name: "Crear archivo de log phpsendmail"
+      file:
+        path: /var/log/phpsendmail.log
+        state: touch
+        owner: www-data
+        group: www-data
+        mode: '0640'
+
+    # =============================================================================
+    # CONFIGURAR JAIL.LOCAL
+    # =============================================================================
+    - name: "Crear archivo jail.local con configuración base"
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          # Fail2Ban configuration file.
+          #
+          # This file was composed for Debian systems from the original one
+          # provided now under /usr/share/doc/fail2ban/examples/jail.conf
+          # for additional examples.
+          #
+          # Comments: use '#' for comment lines and ';' for inline comments
+          #
+          # To avoid merges during upgrades DO NOT MODIFY THIS FILE
+          # and rather provide your changes in /etc/fail2ban/jail.local
+          #
+
+          # The DEFAULT allows a global definition of the options. They can be overridden
+          # in each jail afterwards.
+
+          [DEFAULT]
+          # "ignoreip" can be an IP address, a CIDR mask or a DNS host. Fail2ban will not
+          # ban a host which matches an address in this list. Several addresses can be
+          # defined using space separator.
+          ignoreip = 127.0.0.1/8 {{ fail2ban.ignore_ips | default('mybusinessips ip.of.master.server') }}
+
+          # "bantime" is the number of seconds that a host is banned.
+          bantime  = 3600
+
+          # A host is banned if it has generated "maxretry" during the last "findtime"
+          # seconds.
+          findtime = 600
+          maxretry = 3
+
+          # "backend" specifies the backend used to get files modification.
+          # Available options are "pyinotify", "gamin", "polling" and "auto".
+          # This option can be overridden in each jail as well.
+          #
+          # pyinotify: requires pyinotify (a file alteration monitor) to be installed.
+          #            If pyinotify is not installed, Fail2ban will use auto.
+          # gamin:     requires Gamin (a file alteration monitor) to be installed.
+          #            If Gamin is not installed, Fail2ban will use auto.
+          # polling:   uses a polling algorithm which does not require external libraries.
+          # auto:      will try to use the following backends, in order:
+          #            pyinotify, gamin, polling.
+          backend = auto
+
+          # "usedns" specifies if jails should trust hostnames in logs,
+          #   warn when reverse DNS lookups are performed, or ignore all hostnames in logs
+          #
+          # yes:   if a hostname is encountered, a reverse DNS lookup will be performed.
+          # warn:  if a hostname is encountered, a reverse DNS lookup will be performed,
+          #        but it will be logged as a warning.
+          # no:    if a hostname is encountered, will not be used for banning,
+          #        but it will be logged as info.
+          usedns = warn
+
+          #
+          # Destination email address used solely for the interpolations in
+          # jail.{conf,local} configuration files.
+          destemail = {{ fail2ban.dest_email | default('supervision@mydomain.com') }}
+
+          #
+          # Name of the sender for mta actions
+          sendername = Fail2Ban
+
+
+          #
+          # ACTIONS
+          #
+
+          # Default banning action (e.g. iptables, iptables-new,
+          # iptables-multiport, shorewall, etc) It is used to define
+          # action_* variables. Can be overridden globally or per
+          # section within jail.local file
+          banaction = iptables-multiport
+
+          # email action. Since 0.8.1 upstream fail2ban uses sendmail
+          # MTA for the mailing. Change mta configuration parameter to mail
+          # if you want to revert to conventional 'mail'.
+          mta = sendmail
+
+
+          [apache-shellshock]
+
+          enabled = true
+
+
+          [php-url-fopen]
+
+          enabled = true
+
+
+          [pam-generic]
+
+          enabled = true
+
+
+          [postfix-sasl]
+
+          # Overwrite param port since it is wrong into file jail.conf because it contains 'imap3' instead of 'imap' that does not exists
+          port    = smtp,465,submission,imap,imaps,pop3,pop3s
+          enabled = true
+
+
+          [sshd]
+
+          enabled = true
+
+
+          [xinetd-fail]
+
+          enabled = true
+
+
+          [apache-badbots]
+          # Ban hosts which agent identifies spammer robots crawling the web
+          # for email addresses. The mail outputs are buffered.
+          port     = http,https
+          logpath  = %(apache_access_log)s
+          bantime  = 172800
+          maxretry = 1
+          enabled  = true
+
+
+          [apache-noscript]
+
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 6
+          enabled  = true
+
+
+          [apache-overflows]
+
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 2
+          enabled  = true
+
+
+          [apache-nohome]
+
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 2
+          enabled  = true
+
+
+          [apache-botsearch]
+
+          port     = http,https
+          logpath  = %(apache_error_log)s
+          maxretry = 2
+          enabled  = true
+
+
+          [mysqld-auth]
+
+          port     = 3306
+          logpath  = /var/log/mysql/error.log
+                     /var/log/syslog
+          #backend  = %(mysql_backend)s
+          enabled = true
+          bantime  = 7200      ; 2 hours
+          findtime = 3600      ; 1 hour
+          maxretry = 5
+        backup: yes
+
+    # =============================================================================
+    # VERIFICAR ARCHIVOS DE FILTROS DE SELLYOURSAAS
+    # =============================================================================
+    - name: "Verificar que existen los archivos de filtros de SellYourSaas"
+      stat:
+        path: "{{ dolibarr_sellyoursaas_dir }}/etc/fail2ban/filter.d/{{ item }}"
+      register: filter_files_check
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit401.conf
+        - web-accesslog-limit403.conf
+        - web-accesslog-limitapi.conf
+        - web-accesslog-limitapipermin.conf
+        - web-dolibarr-rulespassforgotten.conf
+        - web-dolibarr-rulesbruteforce.conf
+        - web-dolibarr-ruleslimitpublic.conf
+        - web-dolibarr-rulesregisterinstance.conf
+
+    - name: "Mostrar estado de archivos de filtros"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ filter_files_check.results }}"
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS PARA FILTROS
+    # =============================================================================
+    - name: "Crear enlaces simbólicos para filtros de SellYourSaas"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}/etc/fail2ban/filter.d/{{ item.item }}"
+        dest: "{{ fail2ban_filter_dir }}/{{ item.item }}"
+        state: link
+        force: yes
+      loop: "{{ filter_files_check.results }}"
+      when: item.stat.exists
+
+    # =============================================================================
+    # VERIFICAR ARCHIVOS DE JAIL DE SELLYOURSAAS
+    # =============================================================================
+    - name: "Verificar que existen los archivos de jail de SellYourSaas"
+      stat:
+        path: "{{ dolibarr_sellyoursaas_dir }}/etc/fail2ban/jail.d/{{ item }}"
+      register: jail_files_check
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit401.conf
+        - web-accesslog-limit403.conf
+        - web-accesslog-limitapi.conf
+        - web-accesslog-limitapipermin.conf
+        - web-dolibarr-rulespassforgotten.conf
+        - web-dolibarr-rulesbruteforce.conf
+        - web-dolibarr-ruleslimitpublic.conf
+        - web-dolibarr-rulesregisterinstance.conf
+
+    - name: "Mostrar estado de archivos de jail"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ jail_files_check.results }}"
+
+    # =============================================================================
+    # CREAR ENLACES PARA JAILS COMUNES (DEPLOY Y MASTER)
+    # =============================================================================
+    - name: "Crear enlaces simbólicos para jails comunes (deploy y master)"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}/etc/fail2ban/jail.d/{{ item }}"
+        dest: "{{ fail2ban_jail_dir }}/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - email-dolibarr-ruleskoblacklist.conf
+        - email-dolibarr-ruleskoquota.conf
+        - email-dolibarr-rulesko.conf
+        - email-dolibarr-rulesall.conf
+        - email-dolibarr-rulesadmin.conf
+        - web-accesslog-limit401.conf
+        - web-accesslog-limit403.conf
+        - web-accesslog-limitapi.conf
+        - web-accesslog-limitapipermin.conf
+
+    # =============================================================================
+    # CREAR ENLACES ESPECÍFICOS PARA MASTER
+    # =============================================================================
+    - name: "Crear enlaces simbólicos para jails específicos de MASTER"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}/etc/fail2ban/jail.d/{{ item }}"
+        dest: "{{ fail2ban_jail_dir }}/{{ item }}"
+        state: link
+        force: yes
+      loop:
+        - web-dolibarr-rulespassforgotten.conf
+        - web-dolibarr-rulesbruteforce.conf
+        - web-dolibarr-ruleslimitpublic.conf
+        - web-dolibarr-rulesregisterinstance.conf
+      when: scope is defined and scope == 'master'
+
+    # =============================================================================
+    # CREAR ARCHIVOS DE LOG REQUERIDOS
+    # =============================================================================
+    - name: "Obtener rutas de logs desde jail.local"
+      shell: "grep logpath /etc/fail2ban/jail.local | cut -d= -f2 | grep '^ /' | sort | uniq"
+      register: log_paths
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Crear archivos de log necesarios"
+      file:
+        path: "{{ item.strip() }}"
+        state: touch
+        owner: root
+        group: root
+        mode: '0640'
+      loop: "{{ log_paths.stdout_lines | default([]) }}"
+      when: log_paths.stdout_lines is defined
+      ignore_errors: yes
+
+    # =============================================================================
+    # VERIFICAR CONFIGURACIÓN
+    # =============================================================================
+    - name: "Verificar enlaces de filtros creados"
+      find:
+        paths: "{{ fail2ban_filter_dir }}"
+        patterns: "*dolibarr*"
+        file_type: link
+      register: filter_links
+
+    - name: "Mostrar filtros enlazados"
+      debug:
+        msg:
+          - "=== FILTROS ENLAZADOS ==="
+          - "{{ filter_links.files | map(attribute='path') | map('basename') | sort | list }}"
+          - "========================="
+
+    - name: "Verificar enlaces de jails creados"
+      find:
+        paths: "{{ fail2ban_jail_dir }}"
+        patterns: "*dolibarr*"
+        file_type: link
+      register: jail_links
+
+    - name: "Mostrar jails enlazados"
+      debug:
+        msg:
+          - "=== JAILS ENLAZADOS ==="
+          - "{{ jail_links.files | map(attribute='path') | map('basename') | sort | list }}"
+          - "======================="
+
+    # =============================================================================
+    # PARAR Y REINICIAR FAIL2BAN
+    # =============================================================================
+    - name: "Parar fail2ban antes de aplicar configuración"
+      systemd:
+        name: fail2ban
+        state: stopped
+
+    - name: "Iniciar fail2ban con nueva configuración"
+      systemd:
+        name: fail2ban
+        state: started
+
+    - name: "Habilitar fail2ban al arranque"
+      systemd:
+        name: fail2ban
+        enabled: yes
+
+    - name: "Verificar estado de fail2ban"
+      systemd:
+        name: fail2ban
+      register: fail2ban_final_status
+
+    - name: "Mostrar estado final de fail2ban"
+      debug:
+        msg: "Fail2ban: {{ fail2ban_final_status.status.ActiveState }}"
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Obtener status de fail2ban"
+      command: "fail2ban-client status"
+      register: fail2ban_client_status
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar jails activos"
+      debug:
+        msg:
+          - "=== FAIL2BAN STATUS ==="
+          - "{{ fail2ban_client_status.stdout_lines | default(['Error obteniendo status']) }}"
+          - "======================="
+
+    - name: "Verificar logs de fail2ban"
+      shell: "tail -20 /var/log/fail2ban.log"
+      register: fail2ban_logs
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar últimos logs de fail2ban"
+      debug:
+        msg:
+          - "=== ÚLTIMOS LOGS FAIL2BAN ==="
+          - "{{ fail2ban_logs.stdout_lines | default(['No hay logs disponibles']) }}"
+          - "============================="
+
+    # =============================================================================
+    # MOSTRAR RESUMEN
+    # =============================================================================
+    - name: "Mostrar resumen de configuración fail2ban"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN FAIL2BAN COMPLETADA ==="
+          - "Tipo de servidor: {{ 'MASTER' if (scope is defined and scope == 'master') else 'DEPLOYMENT' }}"
+          - ""
+          - "Reglas genéricas habilitadas:"
+          - "  ✅ apache-shellshock, php-url-fopen, pam-generic"
+          - "  ✅ postfix-sasl, mysqld-auth, xinetd-fail"
+          - "  ✅ apache-badbots, apache-noscript, apache-overflows"
+          - "  ✅ apache-nohome, apache-botsearch"
+          - ""
+          - "Reglas SellYourSaas (comunes):"
+          - "  ✅ email-dol-*, web-accesslog-limit*"
+          - ""
+          - "{{ 'Reglas SellYourSaas (específicas MASTER):' if (scope is defined and scope == 'master') else 'Reglas MASTER: NO aplicadas (servidor deployment)' }}"
+          - "{{ '  ✅ web-dol-passforgotten, web-dol-bruteforce' if (scope is defined and scope == 'master') else '' }}"
+          - "{{ '  ✅ web-dol-limitpublic, web-dol-registerinstance' if (scope is defined and scope == 'master') else '' }}"
+          - ""
+          - "Estado: {{ fail2ban_final_status.status.ActiveState }}"
+          - "Configuración: /etc/fail2ban/jail.local"
+          - "=========================================="
+
+    - name: "Mostrar comandos útiles"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Ver status: fail2ban-client status"
+          - "Ver jails: fail2ban-client status <jail_name>"
+          - "Ver logs: tail -f /var/log/fail2ban.log"
+          - "Ver IPs baneadas: fail2ban-client status sshd"
+          - "Desbanear IP: fail2ban-client set sshd unbanip <IP>"
+          - "Recargar config: fail2ban-client reload"
+          - "Ver config: cat /etc/fail2ban/jail.local"
+          - "======================"

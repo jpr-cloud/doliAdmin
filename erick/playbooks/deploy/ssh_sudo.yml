@@ -20,7 +20,7 @@
 
 ---
 - name: "Configuración SSH y Sudo Deploy"
-  hosts: deploy
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
@@ -60,6 +60,7 @@
           {% for user in ssh_sysadmin_users %}
           AllowUsers {{ user }}
           {% endfor %}
+          root
 
     - name: "Asegurar permisos en archivos sellyoursaas*.conf"
       file:
@@ -78,7 +79,7 @@
           # BEGIN Block for SellYourSaas
           # Warning Match rule works only in sshd_config, not into include files
           Match User osu*
-            PasswordAuthentication=yes
+          PasswordAuthentication=yes
           # END Block for SellYourSaas
 
     - name: "Agregar Defaults set_home y use_pty a /etc/sudoers"

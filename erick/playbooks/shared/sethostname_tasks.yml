@@ -1,21 +1,13 @@
 # =============================================================================
-# CONFIGURACIÓN DE HOSTNAME COMO TASKS
+# Choice a Hostname for the server(s) and set it
 # =============================================================================
 # Este archivo contiene las tareas para configurar hostname
 # Puede ser incluido en otros playbooks usando include_tasks
 # =============================================================================
 ---
-- name: Mostrar información del hostname
-  debug:
-    msg: |
-      Configurando hostname: {{ hostname_main | default(master_server.hostname) }}
-      En servidor: {{ inventory_hostname }}
-      IP: {{ ansible_host | default('N/A') }}
-      Tipo: {{ server_type | default('N/A') }}
-
 - name: Configurar hostname del servidor
   hostname:
-    name: "{{ hostname_main | default(master_server.hostname) }}"
+    name: "{{ target }}"
   become: true
   
 - name: Verificar hostname configurado
@@ -31,6 +23,6 @@
   lineinfile:
     path: /etc/hosts
     regexp: '^127\.0\.1\.1'
-    line: "127.0.1.1 {{ hostname_main | default(master_server.hostname) }}"
+    line: "127.0.1.1 {{ target | default(master_server.hostname) }}"
     backup: yes
   become: true

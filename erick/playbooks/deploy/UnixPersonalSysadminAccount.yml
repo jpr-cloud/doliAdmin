@@ -1,0 +1,23 @@
+---
+- name: "/etc/sudoers.d/"
+  hosts: ' {{ target }}'
+  become: true
+  gather_facts: yes
+  vars:
+    user_sysadmin: "{{ system_users.UnixPersonalSysadmin }}"
+  tasks:
+    - name: 'Creando el archivo /etc/sudoers.d/{{ user_sysadmin }}'
+      copy:
+        dest: "/etc/sudoers.d/{{ user_sysadmin }}"
+        content: |
+              {{ user_sysadmin }} ALL=(ALL) ALL
+              {{ user_sysadmin }} ALL=(ALL) /usr/bin/su - admin
+              {{ user_sysadmin }} ALL=(ALL) /usr/bin/su - osu*
+      owner: root
+      group: root
+      mode: '0440'
+      #    miapellidonombre TODOS=(TODOS) TODOS
+      # También puedes agregar estas líneas para evitar que el usuario vuelva a ingresar una contraseña al cambiar a 'admin' o 'osu*'
+      # Esto permite cambiar a admin u osu* con "sudo su - admin" o "sudo su - osu..."
+      #miapellidonombre ALL=(ALL) /usr/bin/su - admin
+      #miapellidonombre ALL=(ALL) /usr/bin/su - osu*

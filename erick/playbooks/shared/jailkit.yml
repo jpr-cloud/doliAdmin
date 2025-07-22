@@ -1,0 +1,562 @@
+# =============================================================================
+# Configuración de Jailkit para servidores Deployment
+# =============================================================================
+# Jailkit es un conjunto de utilidades para limitar cuentas de usuario a archivos
+# específicos usando chroot() y/o comandos específicos
+# =============================================================================
+---
+- name: "Configuración de Jailkit en servidores Deployment"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    jailkit_home_dir: "/home/jail"
+    jailkit_chroot_dir: "/home/jail/chroot"
+    disk_home_dir: "/mnt/diskhome"
+    template_dir: "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas/scripts/templates"
+
+  tasks:
+    # =============================================================================
+    # PREPARACIÓN DEL SISTEMA
+    # =============================================================================
+    - name: "Verificar si Jailkit ya está instalado"
+      command: "which jk_init"
+      register: jailkit_installed
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar estado de Jailkit"
+      debug:
+        msg: "Jailkit: {{ 'YA INSTALADO' if jailkit_installed.rc == 0 else 'NO INSTALADO' }}"
+
+    # =============================================================================
+    # INSTALACIÓN DE JAILKIT (ANTES DE CONFIGURAR DIRECTORIOS)
+    # =============================================================================
+    - name: "Actualizar cache de apt"
+      apt:
+        update_cache: yes
+
+    - name: "Instalar paquete Jailkit"
+      apt:
+        name: jailkit
+        state: present
+
+    # =============================================================================
+    # CONFIGURACIÓN DE DIRECTORIOS - PARTE CRÍTICA
+    # =============================================================================
+    - name: "⚠️  ADVERTENCIA: Configurando directorios críticos"
+      debug:
+        msg:
+          - "=== ⚠️  CONFIGURACIÓN CRÍTICA DE JAILKIT ⚠️  ==="
+          - "Se van a modificar directorios del sistema"
+          - "Esto incluye remover enlaces simbólicos y crear montajes"
+          - "Asegúrate de tener backup del sistema"
+          - "============================================="
+
+    - name: "Verificar si existe enlace simbólico /home/jail/home"
+      stat:
+        path: "{{ jailkit_home_dir }}/home"
+      register: jail_home_link
+
+    - name: "Remover enlace simbólico /home/jail/home"
+      file:
+        path: "{{ jailkit_home_dir }}/home"
+        state: absent
+      when: jail_home_link.stat.islnk is defined and jail_home_link.stat.islnk
+
+    - name: "Crear directorio /home/jail con permisos root:root"
+      file:
+        path: "{{ jailkit_home_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Crear directorio /home/jail/home para montaje"
+      file:
+        path: "{{ jailkit_home_dir }}/home"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Crear directorios en /mnt/diskhome"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - "{{ disk_home_dir }}/home"
+        - "{{ disk_home_dir }}/chroot"
+
+    - name: "Crear directorio /home/jail/chroot con permisos root:root"
+      file:
+        path: "{{ jailkit_chroot_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # =============================================================================
+    # VERIFICAR PERMISOS ANTES DE CONTINUAR
+    # =============================================================================
+    - name: "Verificar permisos de /home/jail"
+      stat:
+        path: "{{ jailkit_home_dir }}"
+      register: jail_perms
+
+    - name: "Mostrar permisos actuales de /home/jail"
+      debug:
+        msg:
+          - "=== PERMISOS /home/jail ==="
+          - "Owner: {{ jail_perms.stat.pw_name }}:{{ jail_perms.stat.gr_name }}"
+          - "Mode: {{ jail_perms.stat.mode }}"
+          - "=========================="
+
+    - name: "Forzar permisos correctos en /home/jail"
+      file:
+        path: "{{ jailkit_home_dir }}"
+        owner: root
+        group: root
+        mode: '0755'
+        recurse: yes
+
+    # =============================================================================
+    # CONFIGURACIÓN DE /etc/fstab
+    # =============================================================================
+    - name: "Verificar entradas existentes en /etc/fstab"
+      shell: "grep -c '{{ item }}' /etc/fstab || true"
+      register: fstab_entries
+      loop:
+        - "/home/jail/home"
+        - "/home/jail/chroot"
+      changed_when: false
+
+    - name: "Agregar montaje /home/jail/home a /etc/fstab"
+      lineinfile:
+        path: /etc/fstab
+        line: "# /home/jail/home\n{{ disk_home_dir }}/home {{ jailkit_home_dir }}/home bind defaults,bind 0 0"
+        backup: yes
+      when: fstab_entries.results[0].stdout == "0"
+
+    - name: "Agregar montaje /home/jail/chroot a /etc/fstab"
+      lineinfile:
+        path: /etc/fstab
+        line: "# /home/jail/chroot\n{{ disk_home_dir }}/chroot {{ jailkit_chroot_dir }} bind defaults,bind 0 0"
+        backup: yes
+      when: fstab_entries.results[1].stdout == "0"
+
+    # =============================================================================
+    # MONTAR DIRECTORIOS
+    # =============================================================================
+    - name: "Montar /home/jail/home"
+      mount:
+        path: "{{ jailkit_home_dir }}/home"
+        src: "{{ disk_home_dir }}/home"
+        fstype: none
+        opts: bind
+        state: mounted
+
+    - name: "Montar /home/jail/chroot"
+      mount:
+        path: "{{ jailkit_chroot_dir }}"
+        src: "{{ disk_home_dir }}/chroot"
+        fstype: none
+        opts: bind
+        state: mounted
+
+    - name: "Verificar permisos después del montaje"
+      file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - "{{ jailkit_home_dir }}"
+        - "{{ jailkit_home_dir }}/home"
+        - "{{ jailkit_chroot_dir }}"
+
+    # =============================================================================
+    # CONFIGURACIÓN DE jk_init.ini
+    # =============================================================================
+    - name: "Agregar configuraciones al final de /etc/jailkit/jk_init.ini"
+      blockinfile:
+        path: /etc/jailkit/jk_init.ini
+        block: |
+          [groups]
+          comment = Groups management
+          executables = /usr/bin/groups
+
+          [php]
+          comment = The PHP Interpreter and Libraries
+          executables = /usr/bin/php, /usr/bin/php8.1, /usr/bin/php8.0, /usr/bin/php7.4, /usr/bin/php7.3, /usr/bin/php7.2, /usr/bin/php5.6
+          directories = /usr/lib/php, /usr/share/php, /usr/share/php, /etc/php, /usr/share/php-geshi, /usr/share/zoneinfo
+          includesections = env
+
+          [env]
+          comment = environment variables
+          executables = /usr/bin/env
+
+          [mysqlclient]
+          comment = mysql client
+          executables = /usr/bin/mysql, /usr/bin/mysqldump
+          paths = /usr/lib/x86_64-linux-gnu/libmysqlclient.so.21
+          regularfiles = /etc/mysql/my.cf, /etc/mysql/conf.d/, /etc/mysql/mariadb.conf.d/
+        marker: "# {mark} ANSIBLE MANAGED JAILKIT INIT CONFIG"
+        backup: yes
+
+    # =============================================================================
+    # CONFIGURACIÓN DE jk_chrootsh.ini
+    # =============================================================================
+    - name: "Agregar configuración a /etc/jailkit/jk_chrootsh.ini"
+      blockinfile:
+        path: /etc/jailkit/jk_chrootsh.ini
+        block: |
+          [DEFAULT]
+          env = TERM, PATH
+        marker: "# {mark} ANSIBLE MANAGED JAILKIT CHROOTSH CONFIG"
+        backup: yes
+
+    # =============================================================================
+    # CREAR DIRECTORIO TEMPLATE
+    # =============================================================================
+    - name: "Crear directorio template para chroot/jail"
+      file:
+        path: "{{ jailkit_chroot_dir }}/template"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # =============================================================================
+    # VERIFICAR SECCIONES DISPONIBLES
+    # =============================================================================
+    - name: "Listar secciones disponibles en jk_init.ini"
+      command: "jk_init -l -c /etc/jailkit/jk_init.ini"
+      register: available_sections
+      changed_when: false
+
+    - name: "Mostrar secciones disponibles"
+      debug:
+        msg:
+          - "=== SECCIONES DISPONIBLES ==="
+          - "{{ available_sections.stdout_lines }}"
+          - "============================="
+
+    # =============================================================================
+    # INICIALIZAR CHROOT/JAIL CON COMANDOS (VERSIÓN CORREGIDA)
+    # =============================================================================
+    - name: "Verificar que el directorio template tiene permisos correctos"
+      file:
+        path: "{{ jailkit_chroot_dir }}/template"
+        owner: root
+        group: root
+        mode: '0755'
+        state: directory
+
+    - name: "Inicializar chroot/jail con comandos básicos primero"
+      command: >
+        jk_init -v -c /etc/jailkit/jk_init.ini -j {{ jailkit_chroot_dir }}/template
+        basicshell
+      args:
+        creates: "{{ jailkit_chroot_dir }}/template/bin/sh"
+      register: jk_init_basic
+      ignore_errors: yes
+
+    - name: "Inicializar con comandos extendidos"
+      command: >
+        jk_init -v -c /etc/jailkit/jk_init.ini -j {{ jailkit_chroot_dir }}/template
+        extendedshell limitedshell editors
+      register: jk_init_extended
+      ignore_errors: yes
+
+    - name: "Inicializar con herramientas de desarrollo"
+      command: >
+        jk_init -v -c /etc/jailkit/jk_init.ini -j {{ jailkit_chroot_dir }}/template
+        groups sftp rsync git
+      register: jk_init_dev
+      ignore_errors: yes
+
+    - name: "Inicializar con PHP y MySQL"
+      command: >
+        jk_init -v -c /etc/jailkit/jk_init.ini -j {{ jailkit_chroot_dir }}/template
+        php mysqlclient
+      register: jk_init_php
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de inicializaciones"
+      debug:
+        msg:
+          - "=== RESULTADOS DE INICIALIZACIÓN ==="
+          - "Básico: {{ 'OK' if jk_init_basic.rc == 0 else 'ERROR: ' + jk_init_basic.stderr }}"
+          - "Extendido: {{ 'OK' if jk_init_extended.rc == 0 else 'ERROR: ' + jk_init_extended.stderr }}"
+          - "Desarrollo: {{ 'OK' if jk_init_dev.rc == 0 else 'ERROR: ' + jk_init_dev.stderr }}"
+          - "PHP/MySQL: {{ 'OK' if jk_init_php.rc == 0 else 'ERROR: ' + jk_init_php.stderr }}"
+          - "==================================="
+
+    - name: "Crear directorios adicionales en template"
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ '1777' if 'tmp' in item else '0755' }}"
+      loop:
+        - "{{ jailkit_chroot_dir }}/template/home"
+        - "{{ jailkit_chroot_dir }}/template/tmp"
+
+    # =============================================================================
+    # VERIFICAR CONTENIDO DEL TEMPLATE
+    # =============================================================================
+    - name: "Verificar contenido del directorio template"
+      find:
+        paths: "{{ jailkit_chroot_dir }}/template"
+        file_type: directory
+      register: template_content
+
+    - name: "Mostrar estructura del template"
+      debug:
+        msg:
+          - "=== ESTRUCTURA DEL TEMPLATE ==="
+          - "{{ template_content.files | map(attribute='path') | map('basename') | list }}"
+          - "==============================="
+
+    # =============================================================================
+    # CREAR ARCHIVOS TEMPLATE .tgz
+    # =============================================================================
+    - name: "Crear commonjail.tgz"
+      archive:
+        path: "{{ jailkit_chroot_dir }}/template/*"
+        dest: "{{ jailkit_chroot_dir }}/commonjail.tgz"
+        format: gz
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "Crear privatejail.tgz"
+      archive:
+        path: "{{ jailkit_chroot_dir }}/template/*"
+        dest: "{{ jailkit_chroot_dir }}/privatejail.tgz"
+        format: gz
+        owner: root
+        group: root
+        mode: '0644'
+
+    # =============================================================================
+    # MOVER TEMPLATES AL DIRECTORIO SELLYOURSAAS
+    # =============================================================================
+    - name: "Crear directorio de templates si no existe"
+      file:
+        path: "{{ template_dir }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+        recurse: yes
+
+    - name: "Mover templates a directorio sellyoursaas"
+      copy:
+        src: "{{ jailkit_chroot_dir }}/{{ item }}"
+        dest: "{{ template_dir }}/{{ item }}"
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0644'
+        remote_src: yes
+      loop:
+        - commonjail.tgz
+        - privatejail.tgz
+
+    # =============================================================================
+    # CONFIGURACIÓN DE /etc/sellyoursaas.conf
+    # =============================================================================
+    - name: "Crear o actualizar /etc/sellyoursaas.conf"
+      blockinfile:
+        path: /etc/sellyoursaas.conf
+        create: yes
+        block: |
+          # Options for Jailkit
+          chrootdir={{ jailkit_chroot_dir }}
+          privatejailtemplatename=privatejail
+          commonjailtemplatename=commonjail
+        marker: "# {mark} ANSIBLE MANAGED JAILKIT OPTIONS"
+        backup: yes
+# =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar instalación de Jailkit"
+      command: "{{ item }}"
+      register: jailkit_commands
+      loop:
+        - "jk_init --help"
+        - "jk_chrootsh --help"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar información de comandos Jailkit"
+      debug:
+        msg: 
+          - "=== {{ item.cmd[0] | upper }} ==="
+          - "Estado: {{ 'DISPONIBLE' if item.rc == 0 else 'ERROR' }}"
+          - "Ubicación: {{ ansible_facts['ansible_env']['PATH'] | split(':') | map('regex_replace', '^(.*)$', '\\1/' + item.cmd[0]) | select('file_exists') | first | default('No encontrado') }}"
+          - "=================="
+      loop: "{{ jailkit_commands.results }}"
+
+    - name: "Verificar archivos ejecutables de Jailkit"
+      stat:
+        path: "{{ item }}"
+      register: jailkit_executables
+      loop:
+        - "/usr/sbin/jk_init"
+        - "/usr/sbin/jk_chrootsh"
+        - "/usr/sbin/jk_chrootlaunch"
+        - "/usr/sbin/jk_cp"
+        - "/usr/sbin/jk_jailuser"
+
+    - name: "Mostrar estado de ejecutables Jailkit"
+      debug:
+        msg:
+          - "=== EJECUTABLES JAILKIT ==="
+          - "{% for exe in jailkit_executables.results %}"
+          - "{{ exe.item | basename }}: {{ 'EXISTE' if exe.stat.exists else 'NO EXISTE' }}"
+          - "{% endfor %}"
+          - "=========================="
+
+    - name: "Verificar información del paquete Jailkit"
+      shell: "dpkg -l | grep jailkit"
+      register: jailkit_package_info
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar información del paquete"
+      debug:
+        msg:
+          - "=== INFORMACIÓN DEL PAQUETE JAILKIT ==="
+          - "{{ jailkit_package_info.stdout_lines | default(['Paquete no encontrado']) }}"
+          - "======================================"
+
+    - name: "Verificar montajes"
+      shell: "mount | grep '{{ jailkit_home_dir }}'"
+      register: mount_check
+      changed_when: false
+
+    - name: "Mostrar montajes activos"
+      debug:
+        msg:
+          - "=== MONTAJES JAILKIT ==="
+          - "{{ mount_check.stdout_lines | default(['No hay montajes de jailkit']) }}"
+          - "======================="
+
+    - name: "Verificar archivos de configuración"
+      stat:
+        path: "{{ item }}"
+      register: config_files
+      loop:
+        - "/etc/jailkit/jk_init.ini"
+        - "/etc/jailkit/jk_chrootsh.ini"
+        - "/etc/sellyoursaas.conf"
+        - "{{ template_dir }}/commonjail.tgz"
+        - "{{ template_dir }}/privatejail.tgz"
+
+    - name: "Mostrar estado de archivos de configuración"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE (' + (item.stat.size | string) + ' bytes)' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ config_files.results }}"
+
+    - name: "Verificar tamaño de templates"
+      shell: "ls -lh {{ template_dir }}/*.tgz 2>/dev/null || echo 'No hay templates'"
+      register: template_sizes
+      changed_when: false
+
+    - name: "Mostrar tamaños de templates"
+      debug:
+        msg:
+          - "=== TEMPLATES CREADOS ==="
+          - "{{ template_sizes.stdout_lines }}"
+          - "========================"
+
+    - name: "Probar funcionalidad básica de jk_init"
+      shell: "jk_init -l -c /etc/jailkit/jk_init.ini | head -5"
+      register: jk_init_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar prueba de funcionalidad"
+      debug:
+        msg:
+          - "=== PRUEBA DE FUNCIONALIDAD ==="
+          - "{{ jk_init_test.stdout_lines | default(['Error al probar jk_init']) }}"
+          - "=============================="
+
+    # =============================================================================
+    # MOSTRAR RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de instalación de Jailkit"
+      debug:
+        msg:
+          - "=== INSTALACIÓN DE JAILKIT COMPLETADA ==="
+          - "Directorio chroot: {{ jailkit_chroot_dir }}"
+          - "Directorio home: {{ jailkit_home_dir }}/home"
+          - "Templates creados en: {{ template_dir }}"
+          - "Configuración: /etc/sellyoursaas.conf"
+          - ""
+          - "Estado de componentes:"
+          - "✅ Paquete jailkit: {{ 'INSTALADO' if jailkit_package_info.stdout != '' else 'NO INSTALADO' }}"
+          - "✅ Ejecutables: {{ jailkit_executables.results | selectattr('stat.exists') | list | length }}/{{ jailkit_executables.results | length }}"
+          - "✅ Montajes: {{ mount_check.stdout_lines | length }} activos"
+          - "✅ Templates: {{ template_sizes.stdout_lines | length - 1 if template_sizes.stdout != 'No hay templates' else 0 }}"
+          - "=========================================="
+
+    - name: "📋 Siguientes pasos"
+      debug:
+        msg:
+          - "=== SIGUIENTES PASOS ==="
+          - "1. Verificar en Dolibarr Master:"
+          - "   Home → Setup → Other → Añadir constante:"
+          - "   SELLYOURSAAS_SSH_JAILKIT_ENABLED = 1"
+          - ""
+          - "2. Comandos de verificación:"
+          - "   - Ver montajes: mount | grep jail"
+          - "   - Probar jailkit: jk_init --help"
+          - "   - Ver templates: ls -la {{ template_dir }}/"
+          - "   - Verificar permisos: ls -la /home/jail"
+          - ""
+          - "3. Solución de problemas:"
+          - "   - Logs: journalctl -u jailkit"
+          - "   - Permisos: chown -R root:root /home/jail"
+          - "   - Rehacer templates: rm -rf {{ jailkit_chroot_dir }}/template/*"
+          - "======================"
+
+    - name: "⚠️ Configuración crítica completada"
+      debug:
+        msg:
+          - "=== ⚠️ CONFIGURACIÓN CRÍTICA ⚠️ ==="
+          - "Jailkit ha sido configurado con:"
+          - "- Montajes bind en /home/jail"
+          - "- Permisos root:root estrictos"
+          - "- Templates commonjail.tgz y privatejail.tgz"
+          - ""
+          - "🚨 IMPORTANTE:"
+          - "Los cambios en /home/jail afectan la seguridad"
+          - "Verifica que los montajes persistan después"
+          - "de reiniciar el servidor"
+          - "=================================="
+
+    # =============================================================================
+    # MOSTRAR CONFIGURACIÓN PARA DOLIBARR
+    # =============================================================================
+    - name: "📋 Configuración requerida en Dolibarr Master"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN EN DOLIBARR MASTER ==="
+          - "Ve a: Home → Setup → Other"
+          - "Agrega esta constante:"
+          - ""
+          - "Nombre: SELLYOURSAAS_SSH_JAILKIT_ENABLED"
+          - "Valor: 1"
+          - ""
+          - "Esto habilitará la función para establecer si un"
+          - "deployment de servicio se hará dentro de jailkit o no."
+          - "========================================"

@@ -1,0 +1,226 @@
+# =============================================================================
+# INSTALACIÓN Y ACTIVACIÓN DEL AGENTE DE DEPLOYMENT
+# =============================================================================
+# Este playbook configura el agente remote_server_launcher que escucha en puerto 8080
+# y espera órdenes del servidor master
+# Variables del inventario:
+#   - target: El hostname o IP del servidor donde se instalará el agente
+#   - directories.wwwroot: Ruta al directorio raíz del servidor web
+#   - system_users.admin: Usuario administrador del sistema
+
+# =============================================================================
+---
+- name: "Instance Deploy Agent Installation"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que el script remote_server_launcher.sh existe"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+      register: remote_launcher_script_check
+
+    - name: "Mostrar estado del script remote_server_launcher"
+      debug:
+        msg: "Script remote_server_launcher.sh: {{ 'EXISTE' if remote_launcher_script_check.stat.exists else 'NO EXISTE' }}"
+
+    - name: "Verificar que el directorio de documentos existe"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas"
+      register: documents_dir_check
+
+    - name: "Crear directorio de documentos si no existe"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+        recurse: yes
+      when: not documents_dir_check.stat.exists
+
+    - name: "Fallo si el script no existe"
+      fail:
+        msg: "El script remote_server_launcher.sh no existe en {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/"
+      when: not remote_launcher_script_check.stat.exists
+
+    # =============================================================================
+    # CONFIGURACIÓN DE PERMISOS
+    # =============================================================================
+    - name: "Configurar permisos de ejecución para remote_server_launcher.sh"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+        mode: '0755'
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    # =============================================================================
+    # CREAR ENLACE SIMBÓLICO
+    # =============================================================================
+    - name: "Crear enlace simbólico para remote_server_launcher"
+      file:
+        src: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+        dest: /etc/init.d/remote_server_launcher
+        state: link
+        force: yes
+
+    - name: "Verificar que el enlace simbólico se creó correctamente"
+      stat:
+        path: /etc/init.d/remote_server_launcher
+      register: symlink_check
+
+    - name: "Mostrar resultado de la creación del enlace"
+      debug:
+        msg:
+          - "Enlace simbólico: {{ 'CREADO' if symlink_check.stat.exists else 'NO CREADO' }}"
+          - "Apunta a: {{ symlink_check.stat.lnk_source if symlink_check.stat.islnk else 'N/A' }}"
+
+    # =============================================================================
+    # CREAR ARCHIVO DE SERVICIO SYSTEMD
+    # =============================================================================
+    - name: "Crear archivo de servicio systemd remote-server-launcher.service"
+      copy:
+        dest: /etc/systemd/system/remote-server-launcher.service
+        content: |
+          # /etc/systemd/system/remote-server-launcher.service
+          [Unit]
+          Description=Remote Server Launcher
+          RequiresMountsFor={{ directories.wwwroot }}/dolibarr_documents/sellyoursaas
+          After=network.target
+
+          [Service]
+          Type=forking
+          ExecStart=/etc/init.d/remote_server_launcher start
+          TimeoutSec=0
+          StandardOutput=tty
+          RemainAfterExit=yes
+          Restart=on-failure
+          RestartSec=10
+          User={{ system_users.admin }}
+          Group={{ system_users.admin }}
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+      notify: reload systemd
+
+    # =============================================================================
+    # RECARGAR SYSTEMD
+    # =============================================================================
+    - name: "Recargar systemd daemon"
+      systemd:
+        daemon_reload: yes
+
+    # =============================================================================
+    # HABILITAR Y VERIFICAR SERVICIO
+    # =============================================================================
+    - name: "Habilitar remote_server_launcher (init.d)"
+      systemd:
+        name: remote_server_launcher
+        enabled: yes
+        daemon_reload: yes
+      ignore_errors: yes
+
+    - name: "Verificar estado de remote_server_launcher (init.d)"
+      command: "systemctl is-enabled remote_server_launcher"
+      register: remote_launcher_enabled
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar remote-server-launcher.service (systemd)"
+      systemd:
+        name: remote-server-launcher.service
+        enabled: yes
+        daemon_reload: yes
+
+    - name: "Verificar estado de remote-server-launcher.service"
+      command: "systemctl is-enabled remote-server-launcher.service"
+      register: remote_launcher_service_enabled
+      changed_when: false
+
+    - name: "Obtener estado del servicio remote-server-launcher"
+      systemd:
+        name: remote-server-launcher.service
+      register: remote_launcher_status
+
+    # =============================================================================
+    # VERIFICACIÓN DE PUERTO 8080
+    # =============================================================================
+    - name: "Verificar si el puerto 8080 está en uso"
+      wait_for:
+        port: 8080
+        host: "{{ ansible_default_ipv4.address }}"
+        timeout: 5
+      register: port_8080_check
+      ignore_errors: yes
+
+    - name: "Mostrar estado del puerto 8080"
+      debug:
+        msg: "Puerto 8080: {{ 'EN USO' if not port_8080_check.failed else 'LIBRE' }}"
+
+    # =============================================================================
+    # INICIAR SERVICIO (OPCIONAL)
+    # =============================================================================
+    - name: "Preguntar si iniciar el servicio ahora"
+      pause:
+        prompt: "¿Deseas iniciar el servicio remote-server-launcher ahora? (y/n)"
+      register: start_service_prompt
+      when: ansible_connection != 'local'
+
+    - name: "Iniciar servicio remote-server-launcher"
+      systemd:
+        name: remote-server-launcher.service
+        state: started
+      when: 
+        - start_service_prompt is defined
+        - start_service_prompt.user_input | default('n') | lower == 'y'
+      ignore_errors: yes
+
+    # =============================================================================
+    # MOSTRAR RESULTADOS
+    # =============================================================================
+    - name: "Mostrar estado final del agente de deployment"
+      debug:
+        msg:
+          - "=== ESTADO DEL AGENTE DE DEPLOYMENT ==="
+          - "Script: {{ 'EXISTE' if remote_launcher_script_check.stat.exists else 'NO EXISTE' }}"
+          - "Enlace simbólico: {{ 'CREADO' if symlink_check.stat.exists else 'NO CREADO' }}"
+          - "Servicio init.d habilitado: {{ 'SÍ' if remote_launcher_enabled.rc == 0 else 'NO' }}"
+          - "Servicio systemd habilitado: {{ 'SÍ' if remote_launcher_service_enabled.rc == 0 else 'NO' }}"
+          - "Estado del servicio: {{ remote_launcher_status.status.ActiveState | default('unknown') }}"
+          - "Puerto 8080: {{ 'EN USO' if not port_8080_check.failed else 'LIBRE' }}"
+          - "========================================="
+
+    - name: "Mostrar comandos útiles"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Iniciar servicio: systemctl start remote-server-launcher.service"
+          - "Parar servicio: systemctl stop remote-server-launcher.service"
+          - "Ver estado: systemctl status remote-server-launcher.service"
+          - "Ver logs: journalctl -u remote-server-launcher.service -f"
+          - "Verificar puerto: netstat -tlnp | grep :8080"
+          - "===================="
+
+    - name: "Verificar archivos creados"
+      shell: "ls -la {{ item }}"
+      register: created_files
+      loop:
+        - "/etc/init.d/remote_server_launcher"
+        - "/etc/systemd/system/remote-server-launcher.service"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar archivos creados"
+      debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ created_files.results }}"
+      when: item.stdout is defined
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

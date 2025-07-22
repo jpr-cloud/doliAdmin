@@ -1,0 +1,322 @@
+# =============================================================================
+# Configuración de MariaDB para servidores Deployment
+# =============================================================================
+---
+- name: "Configuración MariaDB en servidores Deployment"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar si MariaDB está instalado"
+      stat:
+        path: /usr/bin/mariadb
+      register: mariadb_installed
+
+    - name: "Verificar si MySQL está instalado"
+      stat:
+        path: /usr/bin/mysql
+      register: mysql_installed
+
+    - name: "Determinar tipo de base de datos"
+      set_fact:
+        db_type: "{{ 'mariadb' if mariadb_installed.stat.exists else 'mysql' if mysql_installed.stat.exists else 'none' }}"
+
+    - name: "Mostrar tipo de base de datos detectado"
+      debug:
+        msg: "Base de datos detectada: {{ db_type | upper }}"
+
+    - name: "Fallar si no hay base de datos instalada"
+      fail:
+        msg: "No se detectó MariaDB ni MySQL instalado en el sistema"
+      when: db_type == 'none'
+
+    # =============================================================================
+    # CONFIGURACIÓN DEL ARCHIVO DE SERVICIO SYSTEMD
+    # =============================================================================
+    - name: "Detectar archivo de servicio systemd"
+      stat:
+        path: "{{ item }}"
+      register: service_files
+      loop:
+        - /lib/systemd/system/mariadb.service
+        - /lib/systemd/system/mysql.service
+
+    - name: "Determinar archivo de servicio activo"
+      set_fact:
+        service_file: "{{ item.item }}"
+      loop: "{{ service_files.results }}"
+      when: item.stat.exists
+
+    - name: "Verificar límite actual de archivos"
+      command: "systemctl show -p DefaultLimitNOFILE"
+      register: current_limit
+      changed_when: false
+
+    - name: "Mostrar límite actual"
+      debug:
+        msg: "Límite actual de archivos: {{ current_limit.stdout }}"
+
+    - name: "Configurar límite de archivos en servicio systemd"
+      lineinfile:
+        path: "{{ service_file }}"
+        insertafter: '^\[Service\]'
+        line: "{{ item }}"
+        regexp: "^{{ item.split('=')[0] }}="
+        backup: yes
+      loop:
+        - "LimitNOFILE=50000"
+        - "Restart=no"
+        - "#Restart=on-abort     # on-abort is also possible"
+        - "#Restart=on-watchdog  # on-watchdog is also possible"
+      when: service_file is defined
+
+    - name: "Recargar configuración de systemd"
+      systemd:
+        daemon_reload: yes
+
+    # =============================================================================
+    # CONFIGURACIÓN DE MARIADB
+    # =============================================================================
+    - name: "Configurar MariaDB server (50-server.cnf)"
+      blockinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        insertafter: '^\[mysqld\]'
+        block: |
+          # SellYourSaas MariaDB Configuration for Deployment
+          bind-address = 0.0.0.0
+          max_connections      = 500
+          max_user_connections = 25
+          # wait_timeout and interactive_timeout must be set both or none
+          wait_timeout         = 7200
+          interactive_timeout  = 7200
+          table_open_cache     = 10000
+          table_definition_cache = 8000
+          sort_buffer_size=2M
+          read_buffer_size=1M
+          join_buffer_size=2M
+          max_heap_table_size=32M
+          max_allowed_packet=100000000
+          # Mysql: max_execution_time = 120000 (milliseconds) or Mariadb: max_statement_time = 120 (seconds)
+          #max_execution_time = 120000
+
+          innodb_buffer_pool_size=1G
+          innodb_buffer_pool_instances=8
+          innodb_file_per_table=1
+          innodb_log_file_size=256M
+          innodb_log_buffer_size=32M
+
+          character-set-server  = utf8
+          collation-server      = utf8_unicode_ci
+
+          log_error = /var/log/mysql/error.log
+        marker: "# {mark} ANSIBLE MANAGED MARIADB CONFIG"
+        backup: yes
+      when: db_type == 'mariadb'
+
+    # =============================================================================
+    # CONFIGURACIÓN DE MYSQL (ALTERNATIVA)
+    # =============================================================================
+    - name: "Configurar MySQL server (mysqld.cnf)"
+      blockinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        insertafter: '^\[mysqld\]'
+        block: |
+          # SellYourSaas MySQL Configuration for Deployment
+          bind-address = 0.0.0.0
+          max_connections      = 500
+          max_user_connections = 25
+          # wait_timeout and interactive_timeout must be set both or none
+          wait_timeout         = 7200
+          interactive_timeout  = 7200
+          table_open_cache     = 10000
+          table_definition_cache = 8000
+          sort_buffer_size=2M
+          read_buffer_size=1M
+          join_buffer_size=2M
+          max_heap_table_size=32M
+          max_allowed_packet=100000000
+          # Mysql: max_execution_time = 120000 (milliseconds) or Mariadb: max_statement_time = 120 (seconds)
+          max_execution_time = 120000
+
+          innodb_buffer_pool_size=1G
+          innodb_buffer_pool_instances=8
+          innodb_file_per_table=1
+          innodb_log_file_size=256M
+          innodb_log_buffer_size=32M
+
+          character-set-server  = utf8
+          collation-server      = utf8_unicode_ci
+
+          log_error = /var/log/mysql/error.log
+        marker: "# {mark} ANSIBLE MANAGED MYSQL CONFIG"
+        backup: yes
+      when: db_type == 'mysql'
+
+    # =============================================================================
+    # CONFIGURACIÓN ESPECÍFICA DE MARIADB
+    # =============================================================================
+    - name: "Agregar configuración específica de MariaDB"
+      blockinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        insertafter: '^\[mariadb\]'
+        block: |
+          # MariaDB specific settings
+          log_warnings = 2
+        marker: "# {mark} ANSIBLE MANAGED MARIADB SPECIFIC"
+        backup: yes
+      when: db_type == 'mariadb'
+
+    # =============================================================================
+    # COMENTAR skip_log_error EN mysqld_safe
+    # =============================================================================
+    - name: "Comentar skip_log_error en 50-mysqld_safe.cnf"
+      replace:
+        path: /etc/mysql/mariadb.conf.d/50-mysqld_safe.cnf
+        regexp: '^skip_log_error'
+        replace: '#skip_log_error'
+        backup: yes
+      when: db_type == 'mariadb'
+      ignore_errors: yes
+
+    - name: "Comentar skip_log_error en MySQL"
+      replace:
+        path: /etc/mysql/mysql.conf.d/mysqld_safe_syslog.cnf
+        regexp: '^skip_log_error'
+        replace: '#skip_log_error'
+        backup: yes
+      when: db_type == 'mysql'
+      ignore_errors: yes
+
+    # =============================================================================
+    # VERIFICAR Y CONFIGURAR PERMISOS DE LOG
+    # =============================================================================
+    - name: "Crear directorio de logs de MySQL si no existe"
+      file:
+        path: /var/log/mysql
+        state: directory
+        owner: mysql
+        group: mysql
+        mode: '0755'
+
+    - name: "Verificar archivo de log de errores"
+      stat:
+        path: /var/log/mysql/error.log
+      register: error_log_file
+
+    - name: "Crear archivo de log de errores si no existe"
+      file:
+        path: /var/log/mysql/error.log
+        state: touch
+        owner: mysql
+        group: mysql
+        mode: '0640'
+      when: not error_log_file.stat.exists
+
+    - name: "Configurar permisos del archivo de log de errores"
+      file:
+        path: /var/log/mysql/error.log
+        owner: mysql
+        group: mysql
+        mode: '0640'
+      when: error_log_file.stat.exists
+
+    # =============================================================================
+    # VERIFICACIÓN DE CONFIGURACIÓN
+    # =============================================================================
+    - name: "Verificar configuración de bind-address"
+      shell: "grep -n 'bind-address' /etc/mysql/{{ 'mariadb.conf.d/50-server.cnf' if db_type == 'mariadb' else 'mysql.conf.d/mysqld.cnf' }}"
+      register: bind_address_config
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar configuración de bind-address"
+      debug:
+        msg: "{{ bind_address_config.stdout_lines }}"
+      when: bind_address_config.stdout is defined
+
+    - name: "Verificar configuración de límites"
+      shell: "grep -E '(max_connections|wait_timeout|innodb_buffer_pool_size)' /etc/mysql/{{ 'mariadb.conf.d/50-server.cnf' if db_type == 'mariadb' else 'mysql.conf.d/mysqld.cnf' }}"
+      register: limits_config
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar configuración de límites"
+      debug:
+        msg: "{{ limits_config.stdout_lines }}"
+      when: limits_config.stdout is defined
+
+    # =============================================================================
+    # REINICIAR SERVICIO
+    # =============================================================================
+    - name: "Reiniciar servicio de base de datos"
+      systemd:
+        name: "{{ 'mariadb' if db_type == 'mariadb' else 'mysql' }}"
+        state: restarted
+        enabled: yes
+      register: db_restart
+
+    - name: "Verificar estado del servicio después del reinicio"
+      systemd:
+        name: "{{ 'mariadb' if db_type == 'mariadb' else 'mysql' }}"
+      register: db_status
+
+    - name: "Mostrar estado del servicio"
+      debug:
+        msg:
+          - "Servicio: {{ 'mariadb' if db_type == 'mariadb' else 'mysql' }}"
+          - "Estado: {{ db_status.status.ActiveState }}"
+          - "Habilitado: {{ db_status.status.UnitFileState }}"
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar que MariaDB está escuchando en todas las interfaces"
+      wait_for:
+        port: 3306
+        host: "0.0.0.0"
+        timeout: 30
+      ignore_errors: yes
+
+    - name: "Verificar logs de error"
+      shell: "tail -10 /var/log/mysql/error.log"
+      register: error_log_content
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar últimas líneas del log de errores"
+      debug:
+        msg: "{{ error_log_content.stdout_lines }}"
+      when: error_log_content.stdout is defined
+
+    - name: "Verificar configuración de archivos abiertos en MySQL"
+      shell: "{{ 'mariadb' if db_type == 'mariadb' else 'mysql' }} -e 'SHOW VARIABLES LIKE \"open_files_limit\";'"
+      register: open_files_limit
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar límite de archivos abiertos"
+      debug:
+        msg: "{{ open_files_limit.stdout }}"
+      when: open_files_limit.stdout is defined
+
+    - name: "Mostrar resumen de configuración"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DE {{ db_type | upper }} COMPLETADA ==="
+          - "Servicio systemd: {{ service_file | default('No encontrado') }}"
+          - "Límite de archivos: 50000"
+          - "Bind address: 0.0.0.0 (todas las interfaces)"
+          - "Max connections: 500"
+          - "InnoDB buffer pool: 1G"
+          - "Log de errores: /var/log/mysql/error.log"
+          - "Estado del servicio: {{ db_status.status.ActiveState }}"
+          - "============================================="
+          - "COMANDOS ÚTILES:"
+          - "Ver estado: systemctl status {{ 'mariadb' if db_type == 'mariadb' else 'mysql' }}"
+          - "Ver logs: tail -f /var/log/mysql/error.log"
+          - "Conectar: {{ 'mariadb' if db_type == 'mariadb' else 'mysql' }} -u root -p"
+          - "============================================="

@@ -1,0 +1,384 @@
+# =============================================================================
+# Configuración DNS para servidores Deployment
+# =============================================================================
+# Este playbook configura los archivos DNS que almacenarán los registros DNS
+# de cada cliente *.{{ subdomain }}.{{ domain }}
+# =============================================================================
+---
+- name: "Configuración DNS en servidores Deployment"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    domain: "{{ dns.domain | default('j-cloud.com.mx') }}"
+    subdomain: "{{ dns.subdomain | default('with') }}"
+    deployment_ip: "{{ deployment_server.ip | default(ansible_default_ipv4.address) }}"
+    dns_zone_file: "/etc/bind/{{ subdomain }}.{{ domain }}.hosts"
+    dns_serial: "{{ ansible_date_time.year }}{{ ansible_date_time.month }}{{ ansible_date_time.day }}00"
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que BIND está instalado"
+      stat:
+        path: /usr/sbin/named
+      register: bind_installed
+
+    - name: "Instalar BIND si no está presente"
+      apt:
+        name:
+          - bind9
+          - bind9utils
+          - bind9-doc
+        state: present
+        update_cache: yes
+      when: not bind_installed.stat.exists
+
+    - name: "Mostrar información de configuración DNS"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DNS ==="
+          - "Dominio principal: {{ domain }}"
+          - "Subdominio: {{ subdomain }}"
+          - "Zona completa: {{ subdomain }}.{{ domain }}"
+          - "IP del servidor deployment: {{ deployment_ip }}"
+          - "Archivo de zona: {{ dns_zone_file }}"
+          - "Serial: {{ dns_serial }}"
+          - "========================="
+
+    # =============================================================================
+    # CREAR ARCHIVO DE ZONA DNS
+    # =============================================================================
+    - name: "Crear archivo de zona DNS {{ subdomain }}.{{ domain }}.hosts"
+      copy:
+        dest: "{{ dns_zone_file }}"
+        content: |
+          $ttl 1d
+          $ORIGIN {{ subdomain }}.{{ domain }}.
+          @               IN     SOA     ns1{{ subdomain }}.{{ domain }}. admin.{{ domain }}. (
+                          {{ dns_serial }}       ; serial
+                          600              ; refresh = 10 minutes
+                          300              ; update retry = 5 minutes
+                          604800           ; expiry = 1 week
+                          660              ; negative ttl
+                          )
+                          NS              ns1{{ subdomain }}.{{ domain }}.
+                          NS              ns2{{ subdomain }}.{{ domain }}.
+                          IN      TXT     "v=spf1 mx ~all"
+
+          @               IN      A       {{ deployment_ip }}		; ip of deployment server that hosts the deployed applications
+          *               IN      A       {{ deployment_ip }}		; ip of deployment server that hosts the deployed applications
+
+          $ORIGIN {{ subdomain }}.{{ domain }}.
+
+          ; entry for letsencrypt.
+          _acme-challenge IN	  TXT      "a-value-that-will-be-filled-later-for-lets-encrypt"
+
+
+          ; this entry must always exists.
+          supervision A {{ deployment_ip }}
+
+
+          ; other sub-domain records
+          ; here will be added entry like this one
+          ; client1  A   {{ deployment_ip }}
+        owner: bind
+        group: bind
+        mode: '0644'
+        backup: yes
+
+    # =============================================================================
+    # CONFIGURAR named.conf.local
+    # =============================================================================
+    - name: "Verificar si la zona ya existe en named.conf.local"
+      shell: "grep -c '{{ subdomain }}.{{ domain }}' /etc/bind/named.conf.local || true"
+      register: zone_exists
+      changed_when: false
+
+    - name: "Agregar zona a /etc/bind/named.conf.local"
+      blockinfile:
+        path: /etc/bind/named.conf.local
+        block: |
+          // {{ domain }}
+          zone "{{ subdomain }}.{{ domain }}" {
+                  type master;
+                  file "/etc/bind/{{ subdomain }}.{{ domain }}.hosts";
+                  };
+        marker: "// {mark} ANSIBLE MANAGED ZONE {{ subdomain }}.{{ domain }}"
+        backup: yes
+      when: zone_exists.stdout == "0"
+
+    # =============================================================================
+    # CREAR DIRECTORIO DE ARCHIVOS
+    # =============================================================================
+    - name: "Crear directorio /etc/bind/archives"
+      file:
+        path: /etc/bind/archives
+        state: directory
+        owner: bind
+        group: bind
+        mode: '0755'
+
+    # =============================================================================
+    # CONFIGURAR PERMISOS
+    # =============================================================================
+    - name: "Configurar permisos de archivos BIND"
+      file:
+        path: "{{ item }}"
+        owner: bind
+        group: bind
+        mode: '0644'
+      loop:
+        - "{{ dns_zone_file }}"
+        - /etc/bind/named.conf.local
+      ignore_errors: yes
+
+    # =============================================================================
+    # VERIFICAR Y CONFIGURAR SYSTEMD-RESOLVED
+    # =============================================================================
+    - name: "Verificar estado de systemd-resolved"
+      systemd:
+        name: systemd-resolved
+      register: systemd_resolved_status
+
+    - name: "Verificar resolver actual"
+      shell: "nslookup supervision.{{ subdomain }}.{{ domain }} | head -5"
+      register: current_resolver
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar resolver actual"
+      debug:
+        msg: "{{ current_resolver.stdout_lines | default(['No se pudo verificar resolver']) }}"
+
+    - name: "Verificar contenido de /etc/resolv.conf"
+      shell: "cat /etc/resolv.conf"
+      register: resolv_conf_content
+      changed_when: false
+
+    - name: "Mostrar contenido actual de /etc/resolv.conf"
+      debug:
+        msg: "{{ resolv_conf_content.stdout_lines }}"
+
+    - name: "Verificar si systemd-resolved está usando 127.0.0.53"
+      shell: "grep -c '127.0.0.53' /etc/resolv.conf || true"
+      register: using_systemd_resolved
+      changed_when: false
+
+    - name: "⚠️  Advertencia sobre systemd-resolved"
+      debug:
+        msg:
+          - "=== ⚠️  CONFIGURACIÓN CRÍTICA ⚠️  ==="
+          - "Se detectó systemd-resolved activo"
+          - "Esto puede interferir con BIND local"
+          - "Se va a deshabilitar systemd-resolved"
+          - "Y configurar resolver manual"
+          - "==================================="
+      when: using_systemd_resolved.stdout != "0"
+
+    - name: "Deshabilitar systemd-resolved si está usando 127.0.0.53"
+      systemd:
+        name: systemd-resolved
+        enabled: no
+        state: stopped
+      when: using_systemd_resolved.stdout != "0"
+
+    - name: "Crear /etc/resolv.conf manual"
+      copy:
+        dest: /etc/resolv.conf
+        content: |
+          # Manual DNS configuration for SellYourSaas
+          nameserver 127.0.0.1
+          # Backup DNS servers
+          nameserver 8.8.8.8
+          nameserver 8.8.4.4
+        backup: yes
+      when: using_systemd_resolved.stdout != "0"
+
+    # =============================================================================
+    # REINICIAR SERVICIOS
+    # =============================================================================
+    - name: "Verificar configuración de BIND"
+      command: "named-checkconf"
+      register: bind_config_check
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de verificación de configuración"
+      debug:
+        msg:
+          - "Verificación de configuración BIND: {{ 'EXITOSA' if bind_config_check.rc == 0 else 'CON ERRORES' }}"
+          - "Errores: {{ bind_config_check.stderr | default('Ninguno') }}"
+
+    - name: "Verificar zona DNS"
+      command: "named-checkzone {{ subdomain }}.{{ domain }} {{ dns_zone_file }}"
+      register: zone_check
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de verificación de zona"
+      debug:
+        msg:
+          - "Verificación de zona: {{ 'EXITOSA' if zone_check.rc == 0 else 'CON ERRORES' }}"
+          - "Resultado: {{ zone_check.stdout | default('Sin salida') }}"
+          - "Errores: {{ zone_check.stderr | default('Ninguno') }}"
+
+    - name: "Reiniciar servicio BIND"
+      systemd:
+        name: bind9
+        state: restarted
+        enabled: yes
+      when: bind_config_check.rc == 0 and zone_check.rc == 0
+
+    - name: "Verificar estado de BIND después del reinicio"
+      systemd:
+        name: bind9
+      register: bind_status
+
+    - name: "Mostrar estado de BIND"
+      debug:
+        msg:
+          - "Estado de BIND: {{ bind_status.status.ActiveState }}"
+          - "Habilitado: {{ bind_status.status.UnitFileState }}"
+
+    # =============================================================================
+    # PRUEBAS DE DNS
+    # =============================================================================
+    - name: "Esperar a que BIND esté completamente iniciado"
+      wait_for:
+        port: 53
+        host: 127.0.0.1
+        timeout: 30
+
+    - name: "Probar resolución DNS local"
+      command: "host -a supervision.{{ subdomain }}.{{ domain }} 127.0.0.1"
+      register: local_dns_test
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar resultado de prueba DNS local"
+      debug:
+        msg:
+          - "=== PRUEBA DNS LOCAL ==="
+          - "Comando: host -a supervision.{{ subdomain }}.{{ domain }} 127.0.0.1"
+          - "Resultado: {{ 'EXITOSA' if local_dns_test.rc == 0 else 'FALLÓ' }}"
+          - "Salida:"
+          - "{{ local_dns_test.stdout_lines | default(['Sin salida']) }}"
+          - "Errores: {{ local_dns_test.stderr | default('Ninguno') }}"
+
+    - name: "Probar resolución DNS con Google"
+      command: "nslookup supervision.{{ subdomain }}.{{ domain }} 8.8.8.8"
+      register: google_dns_test
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar resultado de prueba DNS externa"
+      debug:
+        msg:
+          - "=== PRUEBA DNS EXTERNA (Google) ==="
+          - "Comando: nslookup supervision.{{ subdomain }}.{{ domain }} 8.8.8.8"
+          - "Resultado: {{ 'EXITOSA' if google_dns_test.rc == 0 else 'FALLÓ' }}"
+          - "Salida:"
+          - "{{ google_dns_test.stdout_lines | default(['Sin salida']) }}"
+          - "Errores: {{ google_dns_test.stderr | default('Ninguno') }}"
+
+    - name: "Verificar resolución con nslookup local"
+      shell: "nslookup supervision.{{ subdomain }}.{{ domain }}"
+      register: nslookup_local
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar resultado nslookup local"
+      debug:
+        msg: "{{ nslookup_local.stdout_lines | default(['Error en nslookup local']) }}"
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar archivos creados"
+      stat:
+        path: "{{ item }}"
+      register: dns_files_check
+      loop:
+        - "{{ dns_zone_file }}"
+        - "/etc/bind/named.conf.local"
+        - "/etc/bind/archives"
+        - "/etc/resolv.conf"
+
+    - name: "Mostrar estado de archivos DNS"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ dns_files_check.results }}"
+
+    - name: "Verificar contenido de zona DNS"
+      shell: "head -10 {{ dns_zone_file }}"
+      register: zone_content
+      changed_when: false
+
+    - name: "Mostrar contenido de zona DNS"
+      debug:
+        msg: "{{ zone_content.stdout_lines }}"
+
+    - name: "Verificar logs de BIND"
+      shell: "tail -10 /var/log/syslog | grep named"
+      register: bind_logs
+      ignore_errors: yes
+      changed_when: false
+
+    - name: "Mostrar logs recientes de BIND"
+      debug:
+        msg: "{{ bind_logs.stdout_lines | default(['No hay logs recientes de BIND']) }}"
+
+    # =============================================================================
+    # RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de configuración DNS"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DNS COMPLETADA ==="
+          - "Zona configurada: {{ subdomain }}.{{ domain }}"
+          - "Archivo de zona: {{ dns_zone_file }}"
+          - "IP del deployment: {{ deployment_ip }}"
+          - "Directorio archives: /etc/bind/archives"
+          - "Resolver configurado: 127.0.0.1"
+          - "Estado BIND: {{ bind_status.status.ActiveState | default('unknown') }}"
+          - "====================================="
+          - "COMANDOS ÚTILES:"
+          - "Ver zona: cat {{ dns_zone_file }}"
+          - "Probar DNS: host supervision.{{ subdomain }}.{{ domain }} 127.0.0.1"
+          - "Ver logs: tail -f /var/log/syslog | grep named"
+          - "Recargar zona: rndc reload {{ subdomain }}.{{ domain }}"
+          - "====================================="
+
+    - name: "⚠️  Advertencia sobre reinicio"
+      debug:
+        msg:
+          - "=== ⚠️  IMPORTANTE ⚠️  ==="
+          - "Si se deshabilitó systemd-resolved,"
+          - "se recomienda reiniciar el servidor"
+          - "para asegurar configuración completa:"
+          - ""
+          - "shutdown -Fr now"
+          - ""
+          - "Después del reinicio, verificar con:"
+          - "nslookup supervision.{{ subdomain }}.{{ domain }}"
+          - "=========================="
+      when: using_systemd_resolved.stdout != "0"
+
+    - name: "📋 Próximos pasos"
+      debug:
+        msg:
+          - "=== PRÓXIMOS PASOS ==="
+          - "1. Verificar que DNS local funciona:"
+          - "   host -a supervision.{{ subdomain }}.{{ domain }} 127.0.0.1"
+          - ""
+          - "2. Verificar DNS externo:"
+          - "   nslookup supervision.{{ subdomain }}.{{ domain }} 8.8.8.8"
+          - ""
+          - "3. Después de cada deployment, se agregará:"
+          - "   cliente1  A   {{ deployment_ip }}"
+          - "   al archivo {{ dns_zone_file }}"
+          - ""
+          - "4. Para recargar zona después de cambios:"
+          - "   rndc reload {{ subdomain }}.{{ domain }}"
+          - "======================"

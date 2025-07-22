@@ -3,7 +3,7 @@
 # =============================================================================
 ---
 - name: "Configuración de shell por defecto"
-  hosts: deploy
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 

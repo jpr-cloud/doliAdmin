@@ -5,193 +5,267 @@
 # =============================================================================
 ---
 - name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
-  hosts: deploy
+  hosts: '{{ target }}'
   gather_facts: yes
   tasks:
 
 # =============================================================================
-# CONFIGURACIÓN DE HOSTNAME MASTER
+# Choice a Hostname for the server(s) and set it
 # =============================================================================
 - name: "Configuración de hostname Master"
-  hosts: deploy
+  hosts: '{{ target }}'
   become: true
   tasks:
     - name: "Configurar hostname del servidor Master"
       include_tasks: playbooks/shared/sethostname_tasks.yml
       vars:
-        hostname_main: "{{ target }}"
+        target: "{{ target }}"
+    - name: Configurando /etc/sysctl.conf
+      blockinfile:
+        path: /etc/sysctl.conf
+        block: |
+          vm.vfs_cache_pressure=50
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes"
+
 
 # =============================================================================
-# CONFIGURACIÓN BÁSICA DEPLOYMENT
+# Login setup
 # =============================================================================
-- name: "FASE 1: Instalación de paquetes comunes en Deploy"
-  import_playbook: playbooks/shared/common_packages.yml
-  vars:
-    ansible_limit: deploy
-
-# =============================================================================
-# Modify the default shell to use bash
+# Login setup
+#    Default shell
 # =============================================================================
 - name: "Modify the default shell to use bash"
-  import_playbook: playbooks/deploy/default_shell.yml
+  import_playbook: playbooks/shared/default_shell.yml
   vars:
     default_shell_path: "/bin/bash"
     default_sh_link: "/bin/sh"
+    target: "{{ target }}"
 
 # =============================================================================
-# 'Unix personal sysadmin account': Creación del usuario Unix Personal Sysadmin 
+# Login setup
+#    Min for password
 # =============================================================================
-- name: "Creación del usuario Unix Personal Sysadmin"
+- name: "Min for password"
+  import_playbook: playbooks/shared/min_password.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Login setup
+#    Unix personal sysadmin account
+# =============================================================================
+
+- name: "Login setup::Unix personal sysadmin account"
   import_playbook: playbooks/shared/UnixPersonalSysadminAccount.yml
   vars:
-    target: deploy
+    target: '{{ target }}'
+
+# TODO: Falta Add your SSH public key to be able to login using your RSA/DSA key
 
 # =============================================================================
-# 'Unix admin account':Creación del usuario admin y directorios de trabajo
+# Unix admin account
+# Esta tarea sólo es para deploy
 # =============================================================================
 - name: "Creación del usuario admin y directorios de trabajo"
   import_playbook: playbooks/shared/UnixAdminAccount.yml
   vars:
-    target: deploy
-
+    target: '{{ target }}'
 # =============================================================================
-# 'SSH setup' Solo para deployment
+# SSH setup
 # =============================================================================
-- name: "SSH setup"
-  import_playbook: playbooks/deploy/ssh_sudo.yml
+#- name: "SSH setup"
+#  import_playbook: playbooks/deploy/ssh_sudo.yml
+#  vars:
+#    target: '{{ target }}'
+# =============================================================================
+# Deletion of information files at login
+# =============================================================================
+- name: "Borrado de archivos de información al login"
+  import_playbook: playbooks/deploy/delete_info_files.yml
   vars:
-    target: deploy
+    target: '{{ target }}'
 
 # =============================================================================
-# VERIFICACIÓN DEPLOYMENT
+# Creation or modification of /etc/skel directory template
 # =============================================================================
-- name: "FASE 3: Verificación instalación Deployment"
-  hosts: deploy
-  become: true
-  gather_facts: yes
-  tasks:
-    - name: "Verificar servicios críticos en Deploy"
-      systemd:
-        name: "{{ item }}"
-        state: started
-        enabled: yes
-      loop:
-        - apache2
-        - fail2ban
-
-    - name: "Verificar acceso a directorios críticos"
-      file:
-        path: "{{ item }}"
-        state: directory
-      loop:
-        - "{{ directories.instances }}"
-        - "{{ directories.backups }}"
-        - "{{ directories.scripts }}"
-        - "{{ directories.templates }}"
-      check_mode: yes
-
-    - name: "Verificar montaje NFS con Master"
-      mount:
-        path: "{{ directories.nfs_mount }}"
-        src: "{{ master_server.ip }}:{{ directories.backups }}"
-        fstype: nfs
-        state: mounted
-      register: nfs_mount_result
-
-    - name: "Verificar conectividad con base de datos Master"
-        mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} 
-        -e "SELECT 1"
-      register: db_connectivity
-      changed_when: false
-      failed_when: db_connectivity.rc != 0
-
-    - name: "Mostrar resumen de instalación Deployment"
-      debug:
-        msg:
-          - "=========================================="
-          - "INSTALACIÓN DEPLOYMENT COMPLETADA"
-          - "Servidor: {{ inventory_hostname }}"
-          - "IP: {{ ansible_host }}"
-          - "Hostname: {{ ansible_hostname }}"
-          - "NFS Mount: {{ 'OK' if nfs_mount_result.changed == false else 'ERROR' }}"
-          - "DB Connectivity: {{ 'OK' if db_connectivity.rc == 0 else 'ERROR' }}"
-          - "=========================================="
+- name: "reation or modification of /etc/skel directory template"
+  import_playbook: playbooks/deploy/skel_template.yml
+  vars:
+    target: '{{ target }}'
 
 # =============================================================================
-# CONFIGURACIONES ADICIONALES COMPLETENESS
+# Add alias
 # =============================================================================
-- name: "FASE 22: Políticas de contraseñas"
-  import_playbook: playbooks/shared/min_password.yml
+- name: "Add alias to .bashrc"
+  import_playbook: playbooks/deploy/add_alias.yml
   vars:
-    ansible_limit: deploy
+    target: '{{ target }}'
 
-- name: "FASE 23: Configuración antivirus y spam"
-  import_playbook: playbooks/shared/spam_clam_config.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 24: Optimización CPU y logs"
-  import_playbook: playbooks/shared/cpulimit_journalctl.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 25: Configuraciones específicas deployment"
-  import_playbook: playbooks/deploy/deploy_specific.yml
-
-- name: "FASE 26: Usuario personal sysadmin"
-  import_playbook: playbooks/shared/personal_sysadmin.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 27: Script de monitoreo basic.sh"
-  import_playbook: playbooks/shared/monitor_basic.yml
-  vars:
-    ansible_limit: deploy
-
-- name: "FASE 28: SSL wildcard personalizado"
-  import_playbook: playbooks/shared/ssl_wildcard.yml
-  vars:
-    ansible_limit: deploy
+# TODO: [NO] Added support for IP v6 (optional, if ipv6 wanted but not yet enabled)
+# TODO: [NO[ No hace falta: Addition of a swap (optional), Estamos usando SSD y no es necesario
+# TODO: [NO] Addition of a filesystem for logs (optional). En /home/admin/logs estan bien los logs
 
 # =============================================================================
-# INFORMACIÓN FINAL DEPLOYMENT
+# Creation of working directories
 # =============================================================================
-- name: "FASE 4: Información final Deployment"
-  hosts: localhost
-  gather_facts: no
-  tasks:
-    - name: "Mostrar información de acceso Deployment"
-      debug:
-        msg:
-          - "================================================================"
-          - "   INSTALACIÓN SERVIDOR DEPLOYMENT COMPLETADA - 100% COMPLIANCE"
-          - "================================================================"
-          - ""
-          - "🔧 ACCESOS DEPLOYMENT:"
-          - "   • SSH: ssh {{ system_users.app_admin }}@{{ deployment_server.ip }} -p {{ ssh_config.port }}"
-          - "   • Instancias se crearán en: {{ directories.instances }}"
-          - "   • Monitor básico: ejecutar 'basic' en consola"
-          - ""
-          - "📊 SERVICIOS DEPLOYMENT ACTIVOS:"
-          - "   • Apache configurado para instancias múltiples"
-          - "   • NFS Cliente conectado al Master"
-          - "   • Monitoreo específico de instancias"
-          - "   • SSL automático para nuevas instancias"
-          - "   • Jailkit + AppArmor + límites de recursos"
-          - "   • Fail2ban + políticas contraseñas + antivirus"
-          - "   • Optimizaciones CPU/logs específicas"
-          - ""
-          - "🔗 CONEXIÓN CON MASTER:"
-          - "   • Master IP: {{ master_server.ip }}"
-          - "   • Base de datos compartida: {{ database.main_db }}"
-          - "   • NFS Mount: {{ directories.nfs_mount }}"
-          - ""
-          - "🚀 PRÓXIMOS PASOS:"
-          - "   1. Desde el panel Master, crear primera instancia de prueba"
-          - "   2. Verificar que la instancia se crea en este servidor"
-          - "   3. Configurar DNS wildcard para *.{{ deployment_server.domain }}"
-          - "   4. Configurar certificados SSL definitivos"
-          - ""
-          - "📧 NOTIFICACIONES: {{ notifications.email }}"
-          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
-          - "================================================================"
+- name: "Creación de directorios de trabajo"
+  import_playbook: playbooks/shared/working_directories.yml
+  vars:
+    target: '{{ target }}'
+    scope: deploy  # Define the scope of the playbook as deploy
+
+# =============================================================================
+# Instalación de paquetes comunes
+# =============================================================================
+- name: "Instalación de paquetes comunes"
+  import_playbook: playbooks/shared/common_packages.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+# =============================================================================
+- name: "Getting files of Dolibarr and SellYourSaas application"
+  import_playbook: playbooks/shared/getDolibarr.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+#   Creation of /.conf with credentials
+# =============================================================================
+- name: "reation of /.conf with credentials"
+  import_playbook: playbooks/shared/confWithCredentials.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Installing the nfs share
+#   On the Deployment Servers
+# =============================================================================
+- name: "Instalación del NFS share"
+  import_playbook: playbooks/deploy/nfs_deploy.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Deploy the public key of master admin on deployment admin account
+#   On deployment servers
+# TODO: paso manual para verificar y entender el proceso de deploy
+# =============================================================================
+#   - name: "Deploy the public key of master admin on deployment admin account"
+#     import_playbook: playbooks/shared/deploy_public_key.yml
+#     vars:
+#       target: '{{ target }}'
+#       scope: deploy
+
+# =============================================================================
+# Installation of the Apache watchdog
+# =============================================================================
+- name: "Instalación del watchdog de Apache"
+  import_playbook: playbooks/deploy/apache_watchdog.yml
+  vars:
+    target: '{{ target }}'
+  tags: ['ApacheWatchdog']
+
+# =============================================================================
+# Installation of the instance deployment agent
+# ==============================================================================
+- name: "Instalación del agente de despliegue de instancias"
+  import_playbook: playbooks/deploy/instance_deploy_agent.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# fail2ban
+# =============================================================================
+- name: "Instalación y configuración de Fail2ban"
+  import_playbook: playbooks/shared/fail2ban_setup.yml
+  vars:
+    target: '{{ target }}'
+    scope: deploy  # Define the scope of the playbook as deploy
+
+# =============================================================================
+# Afick
+# =============================================================================
+- name: "Instalación y configuración de Afick"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Setup of Mysql or Mariadb
+# =============================================================================
+- name: "Instalación y configuración de MariaDB"
+  import_playbook: playbooks/deploy/mariadb.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# AppArmor
+# TODO: Ejecutar manualmente el comando de configuración de AppArmor
+# =============================================================================
+#    - name: "Instalación y configuración de AppArmor"
+#      import_playbook: playbooks/shared/apparmor.yml
+#      vars:
+#        target: '{{ target }}'
+
+# =============================================================================
+# Jailkit
+# =============================================================================
+- name: "Instalación y configuración de Jailkit"
+  import_playbook: playbooks/shared/jailkit.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Setup of DNS server for domains served by the Deployment servers
+# =============================================================================
+- name: "Instalación y configuración del servidor DNS"
+  import_playbook: playbooks/deploy/dns.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Setup of the PHP environment
+# =============================================================================
+- name: "Instalación y configuración de PHP"
+  import_playbook: playbooks/deploy/phpsetup.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Setup of logrotate
+# =============================================================================
+- name: "Instalación y configuración de logrotate"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Create a wildcard SSL certificate for user instances
+# TODO: Verificar el proceso primero de forma manual
+# =============================================================================
+
+# =============================================================================
+# Installation of Cron tasks
+# =============================================================================
+- name: "Instalación de tareas programadas (Cron)"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    target: '{{ target }}'
+
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+- name: "Instalación del framework Dolibarr"
+  import_playbook: playbooks/shared/dolibarrinstall.yml
+  vars:
+    target: '{{ target }}'
+    scope: deploy  # Define the scope of the playbook as deploy
+
+# =============================================================================
+# Installation of Geoip2
+# TODO: Solo para el servidor Master
+# =============================================================================

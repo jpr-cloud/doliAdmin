@@ -2,8 +2,8 @@
 # Configuración de plantilla /etc/skel
 # =============================================================================
 ---
-- name: "Configuración de directorio /etc/skel"
-  hosts: deploy
+- name: "/etc/skel"
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
 
@@ -39,7 +39,7 @@
       copy:
         content: |
           [client]
-          protocol=tcp
+            protocol=tcp
         dest: /etc/skel/.my.cnf
         mode: '0600'
         owner: root

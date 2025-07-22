@@ -3,11 +3,26 @@
 # =============================================================================
 ---
 - name: 'Crear directorios de trabajo'
-  hosts: master
+  hosts: '{{ target }}'
   become: true
   gather_facts: yes
+  vars:
+    scope: '{{ scope | default("master") }}'  # Define the scope of the playbook master or deploy
+
+## para ambos servidores se deben de crear los siguientes directorios:
+# - /mnt/diskbackup/backup
+# - /home/admin/wwwroot/dolibarr_documents/sellyoursaas/archives
 
   tasks:
+    - name: 'Creando el directorio {{ directories.diskhome }}/backup'
+      file:
+        path: '{{ directories.diskhome }}/backup' # Este es el unico directoio que es para ambos servidores
+        state: directory
+        owner: '{{ system_users.admin }}'
+        group: root
+        mode: '0755'
+        recurse: yes
+
     - name: 'Crear directorios de trabajo principales'
       file:
         path: '{{ item }}'
@@ -17,12 +32,12 @@
         mode: '0755'
         recurse: yes
       loop:
-        - '{{ directories.diskhome }}/backup' # ok
         - '{{ directories.jail }}' # ok
         - '{{ directories.diskhome }}/home' # ok
         - '{{ directories.diskbackup }}/archives-test'
         - '{{ directories.diskbackup }}archives-paid'
         - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam'
+      when: scope == 'deploy'
     
     - name: 'Crear enlaces simbólicos de directorios'
       file:
@@ -33,6 +48,7 @@
         group: admin
       loop:
         - { src: '{{ directories.diskhome }}/backup', dest: '{{ directories.diskbackup }}/backup' }
+      when: scope == 'deploy'
 
 
     - name: 'Crear enlace simbólico para backup'
@@ -41,3 +57,5 @@
         dest: '{{ directories.diskbackup }}/backup'
         state: link
         force: yes
+      when: scope == 'deploy'
+      

@@ -18,7 +18,13 @@ deployment_server:
   domain: '{{ domain }}'  # Dominio para instancias
   fqdn: 'deploy.{{ domain }}'
 
-
+password_policy:
+  min_length: 6
+  max_length: 64
+  require_uppercase: true
+  require_lowercase: true
+  require_numbers: true
+  require_special: true
 
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
@@ -251,7 +257,7 @@ apache_modules:
   - dbd
   - deflate
   - dir
-  - dump_io
+  # - dump_io
   - env
   - expires
   - ext_filter
