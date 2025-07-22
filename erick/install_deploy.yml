@@ -1,0 +1,273 @@
+# =============================================================================
+# INSTALACIÓN SOLO SERVIDOR MASTER
+# =============================================================================
+# Este playbook instala únicamente el servidor master de SellYourSaas
+# =============================================================================
+---
+- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+  hosts: deploy
+  gather_facts: yes
+  tasks:
+
+# =============================================================================
+# Choice a Hostname for the server(s) and set it
+# =============================================================================
+- name: "Configuración de hostname Master"
+  hosts: deploy
+  become: true
+  tasks:
+    - name: "Configurar hostname del servidor Master"
+      include_tasks: playbooks/shared/sethostname_tasks.yml
+      vars:
+        hostname_main: "{{ target }}"
+    - name: Configurando /etc/sysctl.conf
+      blockinfile:
+        path: /etc/sysctl.conf
+        block: |
+          vm.vfs_cache_pressure=50
+        marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes"
+
+
+# =============================================================================
+# Login setup
+# =============================================================================
+# Login setup
+#    Default shell
+# =============================================================================
+    - name: "Modify the default shell to use bash"
+      include_tasks: playbooks/deploy/default_shell.yml
+      vars:
+        default_shell_path: "/bin/bash"
+        default_sh_link: "/bin/sh"
+
+# =============================================================================
+# Login setup
+#    Min for password
+# =============================================================================  
+    - name: "Min for password"
+      include_tasks: playbooks/shared/min_password.yml
+      vars:
+        target: '{{ target }}'
+# =============================================================================
+# Login setup
+#    Unix personal sysadmin account
+# =============================================================================
+
+    - name: "Login setup::Unix personal sysadmin account"
+      include_tasks: playbooks/shared/UnixPersonalSysadminAccount.yml
+      vars:
+        target: '{{ target }}'
+# =============================================================================
+# Login setup
+#    Create a file /etc/sudoers.d/mylastnamefirstname
+# =============================================================================
+    - name: "Create a file /etc/sudoers.d/mylastnamefirstname"
+      include_tasks: playbooks/shared/UnixPersonalSysadminAccount.yml
+      vars:
+        target: '{{ target }}'
+    # TODO: Falta Add your SSH public key to be able to login using your RSA/DSA key
+
+# =============================================================================
+# Unix admin account
+# Esta tarea sólo es para deploy
+# =============================================================================
+    - name: "Creación del usuario admin y directorios de trabajo"
+      include_tasks: playbooks/shared/UnixAdminAccount.yml
+      vars:
+        target: '{{ target }}'
+# =============================================================================
+# SSH setup
+# =============================================================================
+    - name: "SSH setup"
+      include_tasks: playbooks/deploy/ssh_sudo.yml
+      vars:
+        target: '{{ target }}'
+# =============================================================================
+# Deletion of information files at login
+# =============================================================================
+    - name: "Borrado de archivos de información al login"
+      include_tasks: playbooks/shared/delete_info_files.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Creation or modification of /etc/skel directory template
+# =============================================================================
+    - name: "reation or modification of /etc/skel directory template"
+      include_tasks: playbooks/deploy/skel_template.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Add alias
+# =============================================================================
+    - name: "Add alias to .bashrc"
+      include_tasks: playbooks/shared/add_alias.yml
+      vars:
+        target: '{{ target }}'
+# TODO: [NO] Added support for IP v6 (optional, if ipv6 wanted but not yet enabled)
+# TODO: [NO[ No hace falta: Addition of a swap (optional), Estamos usando SSD y no es necesario
+# TODO: [NO] Addition of a filesystem for logs (optional). En /home/admin/logs estan bien los logs
+
+# =============================================================================
+# Creation of working directories
+# =============================================================================
+    - name: "Creación de directorios de trabajo"
+      include_tasks: playbooks/shared/create_working_directories.yml
+      vars:
+        target: '{{ target }}'
+        scope: deploy  # Define the scope of the playbook as deploy
+
+# =============================================================================
+# Instalación de paquetes comunes
+# =============================================================================
+    - name: "Instalación de paquetes comunes"
+      include_tasks: playbooks/shared/common_packages.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+# =============================================================================
+    - name: "Getting files of Dolibarr and SellYourSaas application"
+      include_tasks: playbooks/shared/getDolibarr.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+#   Creation of /.conf with credentials
+# =============================================================================
+    - name: "reation of /.conf with credentials"
+      include_tasks: playbooks/shared/confWithCredentials.yml
+      vars:
+        target: master
+        scope: master
+
+# =============================================================================
+# Installing the nfs share
+#   On the Deployment Servers
+# =============================================================================
+    - name: "Instalación del NFS share"
+      include_tasks: playbooks/deploy/nfs_deploy.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Deploy the public key of master admin on deployment admin account
+#   On deployment servers
+# TODO: paso manual para verificar y entender el proceso de deploy
+# =============================================================================
+#   - name: "Deploy the public key of master admin on deployment admin account"
+#     include_tasks: playbooks/shared/deploy_public_key.yml
+#     vars:
+#       target: '{{ target }}'
+#       scope: deploy
+
+# =============================================================================
+# Installation of the Apache watchdog
+# =============================================================================
+    - name: "Instalación del watchdog de Apache"
+      include_tasks: playbooks/deploy/apache_watchdog.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Installation of the instance deployment agent
+# ==============================================================================
+    - name: "Instalación del agente de despliegue de instancias"
+      include_tasks: playbooks/deploy/instance_deploy_agent.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# fail2ban
+# =============================================================================
+    - name: "Instalación y configuración de Fail2ban"
+      include_tasks: playbooks/shared/fail2ban_setup.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Afick
+# =============================================================================
+    - name: "Instalación y configuración de Afick"
+      include_tasks: playbooks/shared/afick.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Setup of Mysql or Mariadb
+# =============================================================================
+    - name: "Instalación y configuración de MariaDB"
+      include_tasks: playbooks/deploy/mariadb.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# AppArmor
+# TODO: Ejecutar manualmente el comando de configuración de AppArmor
+# =============================================================================
+#    - name: "Instalación y configuración de AppArmor"
+#      include_tasks: playbooks/shared/apparmor.yml
+#      vars:
+#        target: '{{ target }}'
+
+# =============================================================================
+# Jailkit
+# =============================================================================
+    - name: "Instalación y configuración de Jailkit"
+      include_tasks: playbooks/shared/jailkit.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Setup of DNS server for domains served by the Deployment servers
+# =============================================================================
+    - name: "Instalación y configuración del servidor DNS"
+      include_tasks: playbooks/deploy/dns.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Setup of the PHP environment
+# =============================================================================
+    - name: "Instalación y configuración de PHP"
+      include_tasks: playbooks/deploy/phpsetup.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Setup of logrotate
+# =============================================================================
+    - name: "Instalación y configuración de logrotate"
+      include_tasks: playbooks/shared/logrotate.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Create a wildcard SSL certificate for user instances
+# TODO: Verificar el proceso primero de forma manual
+# =============================================================================
+
+# =============================================================================
+# Installation of Cron tasks
+# =============================================================================
+    - name: "Instalación de tareas programadas (Cron)"
+      include_tasks: playbooks/shared/cron_tasks.yml
+      vars:
+        target: '{{ target }}'
+
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+    - name: "Instalación del framework Dolibarr"
+      include_tasks: playbooks/shared/dolibarrinstall.yml
+      vars:
+        target: '{{ target }}'
+        scope: deploy  # Define the scope of the playbook as deploy
+
+# =============================================================================
+# Installation of Geoip2
+# TODO: Solo para el servidor Master
+# =============================================================================
