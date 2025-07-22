@@ -1,16 +1,16 @@
 # =============================================================================
-# INSTALACIÓN SOLO SERVIDOR MASTER
+# INSTALACIÓN SOLO SERVIDOR DEPLOY
 # =============================================================================
-# Este playbook instala únicamente el servidor master de SellYourSaas
+# Este playbook instala únicamente el servidor DEPLOY de SellYourSaas
 # =============================================================================
 ---
-- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+- name: "=== INSTALACIÓN SOLO DEPLOY SERVER ==="
   hosts: deploy
   gather_facts: yes
   tasks:
 
 # =============================================================================
-# CONFIGURACIÓN DE HOSTNAME MASTER
+# CONFIGURACIÓN DE HOSTNAME DEPLOY
 # =============================================================================
 - name: "Configuración de hostname Master"
   hosts: deploy
@@ -33,10 +33,9 @@
 # Modify the default shell to use bash
 # =============================================================================
 - name: "Modify the default shell to use bash"
-  import_playbook: playbooks/deploy/default_shell.yml
+  import_playbook: playbooks/shared/default_shell.yml
   vars:
-    default_shell_path: "/bin/bash"
-    default_sh_link: "/bin/sh"
+    target: deploy
 
 # =============================================================================
 # 'Unix personal sysadmin account': Creación del usuario Unix Personal Sysadmin 
@@ -99,8 +98,8 @@
       register: nfs_mount_result
 
     - name: "Verificar conectividad con base de datos Master"
-        mysql -h{{ master_server.ip }} -u{{ database.user }} -p{{ database.password }} 
-        -e "SELECT 1"
+      shell: |
+        mysql -h"{{ master_server.ip }}" -u"{{ database.user }}" -p"{{ database.password }}" -e "SELECT 1"
       register: db_connectivity
       changed_when: false
       failed_when: db_connectivity.rc != 0
