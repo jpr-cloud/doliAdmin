@@ -160,7 +160,9 @@
         msg: "Servicio cron: {{ cron_status.status.ActiveState }}"
 
     - name: "Probar ejecución de cron.daily"
-      command: "cd / && run-parts --report /etc/cron.daily"
+      shell: "run-parts --report /etc/cron.daily"
+      args:
+        chdir: "/"
       register: cron_daily_test
       changed_when: false
       ignore_errors: yes
@@ -177,7 +179,9 @@
           - "========================="
 
     - name: "Probar ejecución de cron.weekly"
-      command: "cd / && run-parts --report /etc/cron.weekly"
+      shell: "run-parts --report /etc/cron.weekly"
+      args:
+        chdir: "/"
       register: cron_weekly_test
       changed_when: false
       ignore_errors: yes
@@ -192,7 +196,9 @@
           - "==========================="
 
     - name: "Probar ejecución de cron.monthly"
-      command: "cd / && run-parts --report /etc/cron.monthly"
+      shell: "run-parts --report /etc/cron.monthly"
+      args:
+        chdir: "/"
       register: cron_monthly_test
       changed_when: false
       ignore_errors: yes
@@ -224,16 +230,32 @@
         - git_update_sellyoursaas.log
         - batch_customers-backup.log
 
-    - name: "Verificar permisos de scripts"
-      file:
+    # =============================================================================
+    # VERIFICAR PERMISOS DE SCRIPTS
+    # =============================================================================
+    - name: "Verificar existencia de scripts"
+      stat:
         path: "{{ dolibarr_scripts }}/{{ item }}"
-        mode: '0755'
+      register: script_exists
       loop:
         - backup_mysql_system.sh
         - perms.sh
         - clean.sh
         - git_update_sellyoursaas.sh
+
+    - name: "Verificar permisos de scripts"
+      file:
+        path: "{{ dolibarr_scripts }}/{{ item.item }}"
+        mode: '0755'
+      loop: "{{ script_exists.results }}"
+      when: item.stat.exists
       ignore_errors: yes
+
+    - name: "Advertir sobre scripts faltantes"
+      debug:
+        msg: "AVISO: El script {{ item.item }} no existe en {{ dolibarr_scripts }}. Esto es normal si aún no has instalado todos los componentes de SellYourSaas."
+      loop: "{{ script_exists.results }}"
+      when: not item.stat.exists
 
     # =============================================================================
     # MOSTRAR RESUMEN Y COMANDOS ÚTILES

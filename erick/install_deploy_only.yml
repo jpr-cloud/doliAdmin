@@ -222,7 +222,7 @@
 # =============================================================================
 # Setup of DNS server for domains served by the Deployment servers
 # =============================================================================
-- name: "Instalación y configuración del servidor DNS"
+- name: "Instalación y configuración del servidor DNS" #sin fallas
   import_playbook: playbooks/deploy/dns.yml
   vars:
     target: '{{ target }}'
@@ -231,7 +231,7 @@
 # Setup of the PHP environment
 # =============================================================================
 - name: "Instalación y configuración de PHP"
-  import_playbook: playbooks/deploy/phpsetup.yml
+  import_playbook: playbooks/deploy/phpsetup.yml #corregido
   vars:
     target: '{{ target }}'
 
@@ -239,7 +239,7 @@
 # Setup of logrotate
 # =============================================================================
 - name: "Instalación y configuración de logrotate"
-  import_playbook: playbooks/shared/logrotate.yml
+  import_playbook: playbooks/shared/logrotate.yml # sin fallas
   vars:
     target: '{{ target }}'
 
@@ -252,7 +252,7 @@
 # Installation of Cron tasks
 # =============================================================================
 - name: "Instalación de tareas programadas (Cron)"
-  import_playbook: playbooks/shared/cron.yml
+  import_playbook: playbooks/deploy/cron.yml  # Cambiado de shared a deploy
   vars:
     target: '{{ target }}'
 
@@ -260,7 +260,7 @@
 # Installation of Dolibarr framework
 # =============================================================================
 - name: "Instalación del framework Dolibarr"
-  import_playbook: playbooks/shared/dolibarrinstall.yml
+  import_playbook: playbooks/shared/dolibarrInstall.yml
   vars:
     target: '{{ target }}'
     scope: deploy  # Define the scope of the playbook as deploy

@@ -58,12 +58,12 @@
 
     - name: "Mostrar estado de scripts PHP"
       debug:
-        msg: "{{ item.item | basename }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+        msg: "{{ item.item | basename }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE - Este script es opcional' }}"
       loop: "{{ php_scripts_check.results }}"
 
-    - name: "Fallar si los scripts no existen"
-      fail:
-        msg: "Scripts de preprocesamiento PHP no encontrados en {{ sellyoursaas_scripts }}"
+    - name: "Advertir si los scripts no existen"
+      debug:
+        msg: "AVISO: Scripts de preprocesamiento PHP no encontrados en {{ sellyoursaas_scripts }}. Estos scripts son opcionales y solo necesarios si usas características específicas de SellYourSaas."
       when: not item.stat.exists
       loop: "{{ php_scripts_check.results }}"
 
@@ -79,6 +79,13 @@
       loop:
         - { src: "{{ sellyoursaas_scripts }}/phpsendmailprepend.php", dest: "/usr/local/bin/phpsendmailprepend.php" }
         - { src: "{{ sellyoursaas_scripts }}/phpsendmail.php", dest: "/usr/local/bin/phpsendmail.php" }
+      when: php_scripts_check.results | selectattr("item", "equalto", item.src) | map(attribute="stat.exists") | first | default(false)
+      ignore_errors: yes
+
+    - name: "Advertir sobre enlaces no creados"
+      debug:
+        msg: "AVISO: No se crearon enlaces duros para los scripts PHP porque los archivos fuente no existen. Esto es normal si no usas las características de envío de correo de SellYourSaas."
+      when: not (php_scripts_check.results | map(attribute="stat.exists") | select | list | length == 2)
 
     - name: "Verificar enlaces duros creados"
       stat:
