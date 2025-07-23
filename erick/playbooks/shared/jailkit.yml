@@ -397,12 +397,9 @@
 
     - name: "Mostrar información de comandos Jailkit"
       debug:
-        msg: 
-          - "=== {{ item.cmd[0] | upper }} ==="
-          - "Estado: {{ 'DISPONIBLE' if item.rc == 0 else 'ERROR' }}"
-          - "Ubicación: {{ ansible_facts['ansible_env']['PATH'] | split(':') | map('regex_replace', '^(.*)$', '\\1/' + item.cmd[0]) | select('file_exists') | first | default('No encontrado') }}"
-          - "=================="
+        msg: "{{ item.cmd[0] | upper }} - Estado: {{ 'DISPONIBLE' if item.rc == 0 else 'ERROR' }}"
       loop: "{{ jailkit_commands.results }}"
+      ignore_errors: yes
 
     - name: "Verificar archivos ejecutables de Jailkit"
       stat:
@@ -417,12 +414,12 @@
 
     - name: "Mostrar estado de ejecutables Jailkit"
       debug:
-        msg:
-          - "=== EJECUTABLES JAILKIT ==="
-          - "{% for exe in jailkit_executables.results %}"
-          - "{{ exe.item | basename }}: {{ 'EXISTE' if exe.stat.exists else 'NO EXISTE' }}"
-          - "{% endfor %}"
-          - "=========================="
+        msg: |
+          === EJECUTABLES JAILKIT ===
+          {% for exe in jailkit_executables.results %}
+          {{ exe.item | basename }}: {{ 'EXISTE' if exe.stat.exists else 'NO EXISTE' }}
+          {% endfor %}
+          ==========================
 
     - name: "Verificar información del paquete Jailkit"
       shell: "dpkg -l | grep jailkit"
