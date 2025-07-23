@@ -152,7 +152,7 @@
     - name: "Verificar si el puerto 8080 está en uso"
       wait_for:
         port: 8080
-        host: "{{ ansible_default_ipv4.address }}"
+        host: "{{ deployment_server.ip_internal }}"
         timeout: 5
       register: port_8080_check
       ignore_errors: yes
