@@ -32,7 +32,7 @@
         - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/apache2/conf.d/99-sellyoursaas.ini' }
         - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/cli/conf.d/99-sellyoursaas.ini' }
 #        - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/fpm/conf.d/99-sellyoursaas.ini' }
-    - name: "Add a wrapper PHP for the mail() function [Master]"
+    - name: "Add a wrapper PHP for the mail() function"
       file:
         path: "{{ item }}"
         state: touch

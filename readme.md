@@ -19,10 +19,17 @@ Ajustar los valores en `group_vars/all.yml` y en `hosts.cfg`
 
 ```bash
 # Instalación del servidor master
-ansible-playbook -e 'target=master'install_master_only.yml -v
+ansible-playbook -e 'target=master scope=master' install_master_only.yml -v
 
 ## Si quieres ejecutar algún playbook en específico, haz lo siguiente
-ansible-playbook -e 'target=master' playbooks/shared/spam_clam_config.yml -v
+ansible-playbook -e 'target=master scope=master' playbooks/shared/ufw.yml -v
+ansible-playbook -e 'target=deploy scope=deploy' playbooks/shared/ufw.yml -v
+```
+
+```bash
+# Instalación del servidor deploy
+ansible-playbook -e 'target=deploy scope=deploy' install_deploy_only.yml -v
+
 ```
 
 ### Configurar mariaDB
@@ -41,13 +48,13 @@ systemctl restart mariadb
 Configurar el usuario y los permisos en la base de datos
 
 ```mysql
-ALTER USER 'root'@'localhost' IDENTIFIED BY 'mysqlrootpassword';
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'ZKym8_B1e87=';
 
 CREATE DATABASE IF NOT EXISTS sellyoursaas;
 
-GRANT CREATE, CREATE TEMPORARY TABLES, CREATE VIEW, DROP, DELETE, INSERT, SELECT, UPDATE, ALTER, INDEX, REFERENCES, SHOW VIEW ON *.* TO sellyoursaas@localhost  IDENTIFIED BY 'p123p123';
+GRANT CREATE, CREATE TEMPORARY TABLES, CREATE VIEW, DROP, DELETE, INSERT, SELECT, UPDATE, ALTER, INDEX, REFERENCES, SHOW VIEW ON *.* TO sellyoursaas@localhost  IDENTIFIED BY '|2uLBm0}41.I';
 
-GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON sellyoursaas.* TO 'sellyoursaas'@'92.168.178.3' IDENTIFIED BY 'p123p123';
+GRANT CREATE TEMPORARY TABLES, DELETE, INSERT, SELECT, UPDATE ON sellyoursaas.* TO 'sellyoursaas'@'92.168.178.3' IDENTIFIED BY '|2uLBm0}41.I';
 FLUSH PRIVILEGES;
 ```
 

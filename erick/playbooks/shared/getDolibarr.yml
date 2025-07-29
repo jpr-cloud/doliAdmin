@@ -14,7 +14,7 @@
         state: directory
         owner: "{{ system_users.admin }}"
         group: "{{ system_users.admin }}"
-        mode: '0755'
+#        mode: '0755'
 
     - name: "Verificar si Dolibarr ya está clonado"
       stat:
@@ -90,7 +90,7 @@
         path: "/home/{{ system_users.admin }}/wwwroot/dolibarr"
         owner: "{{ system_users.admin }}"
         group: www-data
-        mode: '0755'
+#        mode: '0755'
         recurse: no
 
     - name: "Configurar permisos para SellYourSaas"
@@ -98,7 +98,7 @@
         path: "/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas"
         owner: "{{ system_users.admin }}"
         group: www-data
-        mode: '0755'
+#        mode: '0755'
         recurse: no
 
     - name: "Mostrar directorios clonados"

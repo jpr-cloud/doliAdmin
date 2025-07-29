@@ -11,8 +11,11 @@
   gather_facts: yes
 
   tasks:
+    - name: "update-motd package installation"
+      package:
+        name: update-motd
     # =============================================================================
-    # VERIFICAR ARCHIVOS EXISTENTES
+    # VERIFICAR ARCHIVOS EXISTENTES apt install update-motd
     # =============================================================================
     - name: "Verificar archivos MOTD existentes"
       find:
@@ -33,6 +36,7 @@
       register: motd_files_check
       loop:
         - "00-header"
+        - "10-help-text"
         - "20-runabove"
         - "50-landscape-sysinfo"
         - "50-motd-news"
@@ -95,6 +99,7 @@
         state: absent
       loop:
         - "00-header"
+        - "10-help-text"
         - "20-runabove"
         - "50-landscape-sysinfo"
         - "50-motd-news"

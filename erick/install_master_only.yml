@@ -42,10 +42,10 @@
 # 'Unix admin account':Creación del usuario admin y directorios de trabajo
 # Esta tarea solo es para deployment, se comenta por
 # =============================================================================
-#- name: "Creación del usuario admin y directorios de trabajo"
-#  import_playbook: playbooks/shared/UnixAdminAccount.yml
-#  vars:
-#    target: master
+- name: "Creación del usuario admin y directorios de trabajo"
+  import_playbook: playbooks/shared/UnixAdminAccount.yml
+  vars:
+    target: master
 
 # =============================================================================
 # 'SSH setup' Solo para deployment, no para master
@@ -63,6 +63,7 @@
   import_playbook: playbooks/shared/working_directories.yml
   vars:
     target: master
+    scope: master
 
 # =============================================================================
 # Getting files of Dolibarr and SellYourSaas application

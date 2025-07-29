@@ -12,7 +12,7 @@
       package:
         name:
           - spamassassin
-          - spamc
+          - spamd
           - clamav
           - clamav-daemon
           - clamav-freshclam

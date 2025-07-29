@@ -3,7 +3,16 @@
 # =============================================================================
 domain: 'j-cloud.com.mx'
 subdomain: 'a1'
+networking:
+  address: '192.168.178.0' # Dirección de red interna
+  mask: '/24'  # Máscara de red para la red interna
+
 # === CONFIGURACIÓN DE SERVIDORES ===
+# =============================================================================
+# Este bloque define la configuración de los servidores utilizados en el entorno
+# No  confundir  con  la configuración que hay en hosts, que es para definir los
+# hosts de Ansible
+# =============================================================================
 master_server:
   hostname: 'master'
   ip: '195.201.216.33'
@@ -13,7 +22,7 @@ master_server:
 
 deployment_server:
   hostname: 'deploy'
-  ip: '91.99.229.240'
+  ip: '37.27.47.57'
   ip_internal: '192.168.178.3'
   domain: '{{ domain }}'  # Dominio para instancias
   fqdn: 'deploy.{{ domain }}'
@@ -29,21 +38,21 @@ password_policy:
 # === USUARIOS Y CONTRASEÑAS ===
 system_users:
   unix_admin: 'myunixlogin'
-  unix_admin_password: 'p123p123'
+  unix_admin_password: 'iI7N-p0U12_p'
   admin: 'admin'
-  admin_password: 'admin'
+  admin_password: 'ThC2g@49n9c~'
   UnixPersonalSysadmin: 'jpyrsaadmin'
-  UnixPersonalSysadmin_password: 'p123p123'
+  UnixPersonalSysadmin_password: 'iI7N-p0U12_p'
 
   
   app_admin: 'admin'
   passwords:
-    root: 'p123p123'
-    admin: 'p123p123'
+    root: 'iI7N-p0U12_p'
+    admin: 'iI7N-p0U12_p'
 
 # === USUARIO PERSONAL SYSADMIN ===
 personal_sysadmin_user: 'jpyrsaadmin'
-personal_sysadmin_user_password: 'p123p123'
+personal_sysadmin_user_password: 'iI7N-p0U12_p'
 
 # === CLAVES SSH ===
 ssh_config:
@@ -73,8 +82,8 @@ database:
   port: 3306
   main_db: 'dolibarr_main'  # Base de datos principal como en main.md
   user: 'sellyoursaas'
-  password: 'p123p123'
-  root_password: 'p123p123'
+  password: 'iI7N-p0U12_p'
+  root_password: 'iI7N-p0U12_p'
 
 
 database_deploySaas:
@@ -82,7 +91,7 @@ database_deploySaas:
   port: 3306
   schema: 'sellyoursaas'  # Base de datos principal como en main.md
   user: 'sellyoursaas'
-  password: 'p123p123'
+  password: 'iI7N-p0U12_p'
 
 php:
   version: '8.3'
@@ -124,7 +133,7 @@ directories:
 # === NFS ===
 nfs:
   # En master: exportar backup
-  export_path: '{{ directories.backups }}'
+  export_path: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents/sellyoursaas'
   export_options: '{{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)'
   
   # En deployment: montar desde master

@@ -4,7 +4,7 @@
 # Este playbook instala únicamente el servidor master de SellYourSaas
 # =============================================================================
 ---
-- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+- name: "=== INSTALACIÓN para {{ target }} ==="
   hosts: '{{ target }}'
   gather_facts: yes
   tasks:
@@ -12,11 +12,11 @@
 # =============================================================================
 # Choice a Hostname for the server(s) and set it
 # =============================================================================
-- name: "Configuración de hostname Master"
+- name: "Configuración de hostname {{ target }}"
   hosts: '{{ target }}'
   become: true
   tasks:
-    - name: "Configurar hostname del servidor Master"
+    - name: "Configurar hostname del servidor {{ target }}"
       include_tasks: playbooks/shared/sethostname_tasks.yml
       vars:
         target: "{{ target }}"
@@ -27,6 +27,13 @@
           vm.vfs_cache_pressure=50
         marker: "# {mark} ANSIBLE MANAGED BLOCK manager and managed nodes"
 
+# =============================================================================
+# Instalación de paquetes comunes
+# =============================================================================
+- name: "Instalación de paquetes comunes"
+  import_playbook: playbooks/shared/common_packages.yml
+  vars:
+    target: '{{ target }}'
 
 # =============================================================================
 # Login setup
@@ -148,6 +155,7 @@
   import_playbook: playbooks/deploy/nfs_deploy.yml
   vars:
     target: '{{ target }}'
+    scope: deploy  # Define the scope of the playbook as deploy
 
 # =============================================================================
 # Deploy the public key of master admin on deployment admin account

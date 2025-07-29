@@ -1,28 +1,83 @@
-- name: Unix personal sysadmin account
+---
+- name: "Unix personal sysadmin account"
   hosts: '{{ target }}'
   become: yes
   become_user: root
+  gather_facts: yes
+
   tasks:
-    - name: 'Agregando al administrador del sistema {{ system_users.UnixPersonalSysadmin }} con sus respectivas claves'
+    # =============================================================================
+    # VERIFICACIONES PREVIAS RÁPIDAS
+    # =============================================================================
+    - name: "Verificar estado del sistema de usuarios"
+      shell: "timeout 10 id root && echo 'Sistema usuarios OK'"
+      register: user_system_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Verificar si el usuario ya existe"
+      shell: "id {{ system_users.UnixPersonalSysadmin }} 2>/dev/null && echo 'EXISTS' || echo 'NOT_EXISTS'"
+      register: user_exists_check
+      changed_when: false
+
+    - name: "Mostrar estado previo"
+      debug:
+        msg:
+          - "=== ESTADO PREVIO ==="
+          - "Sistema usuarios: {{ 'OK' if user_system_check.rc == 0 else 'ERROR' }}"
+          - "Usuario {{ system_users.UnixPersonalSysadmin }}: {{ user_exists_check.stdout.strip() }}"
+          - "===================="
+
+    # =============================================================================
+    # CREACIÓN DE USUARIO CON TIMEOUT
+    # =============================================================================
+    - name: "Agregando al administrador del sistema {{ system_users.UnixPersonalSysadmin }}"
       ansible.builtin.user:
         name: '{{ system_users.UnixPersonalSysadmin }}'
         password: "{{ system_users.UnixPersonalSysadmin_password | password_hash('sha512') }}"
         generate_ssh_key: yes
         ssh_key_bits: 2048
         ssh_key_file: .ssh/id_rsa
+        shell: /bin/bash
+        create_home: yes
+        state: present
+      register: user_creation_result
+      timeout: 60
+      when: user_exists_check.stdout.strip() == 'NOT_EXISTS'
 
-    - name: "Creando el archivo /etc/sudoers.d/{{ system_users.UnixPersonalSysadmin }}"
+    - name: "Actualizar contraseña si el usuario ya existe"
+      ansible.builtin.user:
+        name: '{{ system_users.UnixPersonalSysadmin }}'
+        password: "{{ system_users.UnixPersonalSysadmin_password | password_hash('sha512') }}"
+        update_password: always
+      when: user_exists_check.stdout.strip() == 'EXISTS'
+
+    # =============================================================================
+    # CONFIGURACIÓN SUDOERS CON VALIDACIÓN RÁPIDA
+    # =============================================================================
+    - name: "Verificar sudoers actual"
+      shell: "timeout 10 visudo -c"
+      register: sudoers_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Crear archivo sudoers para {{ system_users.UnixPersonalSysadmin }}"
       copy:
         dest: "/etc/sudoers.d/{{ system_users.UnixPersonalSysadmin }}"
         content: |
-          {{ system_users.UnixPersonalSysadmin }} ALL=(ALL) ALL
+          # Sudoers configuration for {{ system_users.UnixPersonalSysadmin }}
+          {{ system_users.UnixPersonalSysadmin }} ALL=(ALL) NOPASSWD:ALL
           {{ system_users.UnixPersonalSysadmin }} ALL=(ALL) /usr/bin/su - admin
           {{ system_users.UnixPersonalSysadmin }} ALL=(ALL) /usr/bin/su - osu*
         owner: root
         group: root
         mode: '0440'
+        validate: 'timeout 10 visudo -cf %s'
 
-    - name: "Asegurar que el directorio .ssh existe"
+    # =============================================================================
+    # CONFIGURACIÓN SSH OPTIMIZADA
+    # =============================================================================
+    - name: "Configurar directorio .ssh"
       file:
         path: "/home/{{ system_users.UnixPersonalSysadmin }}/.ssh"
         state: directory
@@ -36,3 +91,34 @@
         state: present
         key: "{{ ssh_keys.admin_public }}"
         path: "/home/{{ system_users.UnixPersonalSysadmin }}/.ssh/authorized_keys"
+      when: ssh_keys.admin_public is defined
+
+    # =============================================================================
+    # VERIFICACIÓN FINAL RÁPIDA
+    # =============================================================================
+    - name: "Verificación final rápida"
+      shell: |
+        echo "=== VERIFICACIÓN FINAL ==="
+        echo "Usuario: $(id {{ system_users.UnixPersonalSysadmin }} 2>/dev/null && echo 'OK' || echo 'ERROR')"
+        echo "SSH Key: $(test -f /home/{{ system_users.UnixPersonalSysadmin }}/.ssh/id_rsa.pub && echo 'OK' || echo 'ERROR')"
+        echo "Sudoers: $(test -f /etc/sudoers.d/{{ system_users.UnixPersonalSysadmin }} && echo 'OK' || echo 'ERROR')"
+        echo "=========================="
+      register: final_verification
+      changed_when: false
+
+    - name: "Mostrar verificación final"
+      debug:
+        msg: "{{ final_verification.stdout_lines }}"
+
+    - name: "Obtener clave pública generada"
+      slurp:
+        src: "/home/{{ system_users.UnixPersonalSysadmin }}/.ssh/id_rsa.pub"
+      register: generated_ssh_key
+      ignore_errors: yes
+
+    - name: "Mostrar clave pública"
+      debug:
+        msg:
+          - "=== CLAVE PÚBLICA ==="
+          - "{{ generated_ssh_key.content | b64decode | trim if generated_ssh_key.content is defined else 'No se pudo obtener la clave' }}"
+          - "===================="
