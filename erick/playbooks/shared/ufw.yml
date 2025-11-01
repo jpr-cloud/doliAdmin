@@ -46,6 +46,16 @@
     # =============================================================================
     # INSTALACIÓN Y CONFIGURACIÓN INICIAL
     # =============================================================================
+    - name: "Configurar UFW para no pedir confirmación"
+      lineinfile:
+        path: /etc/ufw/ufw.conf
+        regexp: '^ENABLED='
+        line: 'ENABLED=yes'
+        backup: yes
+
+    - name: "Activar UFW"
+      ufw:
+        state: enabled
     - name: "Instalar UFW si no está presente"
       apt:
         name: ufw
@@ -321,9 +331,10 @@
     # =============================================================================
     # ACTIVACIÓN Y VERIFICACIÓN
     # =============================================================================
-    - name: "Activar UFW"
-      ufw:
-        state: enabled
+    - name: "Activar UFW (método directo)"
+      command: ufw --force enable
+      register: ufw_enable_result
+      changed_when: "'Firewall is active' in ufw_enable_result.stdout"
 
     - name: "Verificar estado final de UFW"
       shell: "ufw status verbose"
