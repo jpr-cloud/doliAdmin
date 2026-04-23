@@ -1,0 +1,328 @@
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+---
+- name: 'Installation of Dolibarr framework'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  vars:
+    wwwroot_dir: "{{ directories.wwwroot }}"
+    dolibarr_dir: "{{ wwwroot_dir }}/dolibarr"
+    dolibarr_sellyoursaas_dir: "{{ wwwroot_dir }}/dolibarr_sellyoursaas"
+    custom_dir: "{{ dolibarr_dir }}/htdocs/custom"
+    sellyoursaas_custom_dir: "{{ custom_dir }}/sellyoursaas"
+    myaccount_dir: "{{ sellyoursaas_custom_dir }}/myaccount"
+    scope: '{{ scope | default("deploy") }}'  # Default to 'deploy' if not set
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que los directorios base existen"
+      stat:
+        path: "{{ item }}"
+      register: base_dirs_check
+      loop:
+        - "{{ dolibarr_dir }}/htdocs"
+        - "{{ dolibarr_sellyoursaas_dir }}"
+
+    - name: "Mostrar estado de directorios base"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ base_dirs_check.results }}"
+
+    - name: "Fallar si los directorios base no existen"
+      fail:
+        msg: "Directorio requerido no existe: {{ item.item }}"
+      loop: "{{ base_dirs_check.results }}"
+      when: not item.stat.exists
+
+    - name: "Crear directorio custom si no existe"
+      file:
+        path: "{{ custom_dir }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+#        mode: '0755'
+
+    # =============================================================================
+    # VERIFICAR Y MANEJAR DIRECTORIO EXISTENTE
+    # =============================================================================
+    - name: "Verificar si sellyoursaas ya existe y qué tipo es"
+      stat:
+        path: "{{ sellyoursaas_custom_dir }}"
+      register: sellyoursaas_existing_check
+
+    - name: "Mostrar estado actual de sellyoursaas"
+      debug:
+        msg:
+          - "=== ESTADO ACTUAL DE SELLYOURSAAS ==="
+          - "Ruta: {{ sellyoursaas_custom_dir }}"
+          - "Existe: {{ sellyoursaas_existing_check.stat.exists }}"
+          - "Es enlace: {{ sellyoursaas_existing_check.stat.islnk | default(false) }}"
+          - "Es directorio: {{ sellyoursaas_existing_check.stat.isdir | default(false) }}"
+          - "Tamaño: {{ sellyoursaas_existing_check.stat.size | default(0) }}"
+          - "===================================="
+
+    - name: "Verificar contenido del directorio sellyoursaas existente"
+      shell: "ls -la {{ sellyoursaas_custom_dir }}/ 2>/dev/null | head -10"
+      register: sellyoursaas_content
+      changed_when: false
+      ignore_errors: yes
+      when: 
+        - sellyoursaas_existing_check.stat.exists
+        - sellyoursaas_existing_check.stat.isdir | default(false)
+        - not (sellyoursaas_existing_check.stat.islnk | default(false))
+
+    - name: "Mostrar contenido del directorio existente"
+      debug:
+        msg:
+          - "=== CONTENIDO ACTUAL ==="
+          - "{{ sellyoursaas_content.stdout_lines | default(['No se pudo leer']) }}"
+          - "========================"
+      when: sellyoursaas_content is defined and sellyoursaas_content.stdout_lines is defined
+
+    - name: "Crear backup del directorio existente si no está vacío"
+      shell: |
+        if [ -d "{{ sellyoursaas_custom_dir }}" ] && [ "$(ls -A {{ sellyoursaas_custom_dir }})" ]; then
+          BACKUP_DIR="{{ sellyoursaas_custom_dir }}_backup_$(date +%Y%m%d_%H%M%S)"
+          echo "Creando backup en: $BACKUP_DIR"
+          mv "{{ sellyoursaas_custom_dir }}" "$BACKUP_DIR"
+          echo "Backup creado exitosamente en: $BACKUP_DIR"
+        else
+          echo "Directorio vacío o no existe, no se necesita backup"
+        fi
+      register: backup_result
+      when: 
+        - sellyoursaas_existing_check.stat.exists
+        - sellyoursaas_existing_check.stat.isdir | default(false)
+        - not (sellyoursaas_existing_check.stat.islnk | default(false))
+
+    - name: "Mostrar resultado del backup"
+      debug:
+        msg: "{{ backup_result.stdout_lines | default(['No se realizó backup']) }}"
+      when: backup_result is defined
+
+    - name: "Remover directorio existente si es enlace roto"
+      file:
+        path: "{{ sellyoursaas_custom_dir }}"
+        state: absent
+      when: 
+        - sellyoursaas_existing_check.stat.exists
+        - sellyoursaas_existing_check.stat.islnk | default(false)
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS
+    # =============================================================================
+    - name: "Crear enlace simbólico sellyoursaas en custom"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}"
+        dest: "{{ sellyoursaas_custom_dir }}"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Verificar que el enlace sellyoursaas se creó correctamente"
+      stat:
+        path: "{{ sellyoursaas_custom_dir }}"
+      register: sellyoursaas_link_check
+
+    - name: "Mostrar estado del enlace sellyoursaas"
+      debug:
+        msg:
+          - "=== ENLACE SELLYOURSAAS ==="
+          - "Existe: {{ sellyoursaas_link_check.stat.exists }}"
+          - "Es enlace: {{ sellyoursaas_link_check.stat.islnk | default(false) }}"
+          - "Destino: {{ sellyoursaas_link_check.stat.lnk_target | default('N/A') }}"
+          - "============================"
+
+    - name: "Crear directorio myaccount si no existe"
+      file:
+        path: "{{ myaccount_dir }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+#        mode: '0755'
+
+    - name: "Verificar y limpiar enlaces existentes en myaccount"
+      shell: |
+        # Remover enlaces existentes que puedan estar rotos
+        for link in "{{ myaccount_dir }}/source" "{{ myaccount_dir }}/main.inc.php"; do
+          if [ -L "$link" ]; then
+            echo "Removiendo enlace existente: $link"
+            rm -f "$link"
+          elif [ -e "$link" ]; then
+            echo "Archivo/directorio existente (no enlace): $link"
+            ls -la "$link"
+          fi
+        done
+      register: cleanup_myaccount_links
+      changed_when: false
+
+    - name: "Mostrar limpieza de myaccount"
+      debug:
+        msg: "{{ cleanup_myaccount_links.stdout_lines | default(['No hay enlaces para limpiar']) }}"
+
+    - name: "Crear enlace simbólico source en directorio myaccount"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs"
+        dest: "{{ myaccount_dir }}/source"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    - name: "Crear enlace simbólico main.inc.php en directorio myaccount"
+      file:
+        src: "{{ dolibarr_dir }}/htdocs/main.inc.php"
+        dest: "{{ myaccount_dir }}/main.inc.php"
+        state: link
+        force: yes
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+
+    # =============================================================================
+    # CONFIGURACIÓN ESPECÍFICA PARA DEPLOYMENT SERVERS
+    # =============================================================================
+    - name: "Crear directorio conf para servidores deployment"
+      file:
+        path: "{{ dolibarr_dir }}/htdocs/conf"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+      when: scope is defined and scope == 'deploy'
+
+    - name: "Crear archivo conf.php para servidores deployment"
+      copy:
+        dest: "{{ dolibarr_dir }}/htdocs/conf/conf.php"
+        content: |
+          <?php
+          $dolibarr_main_document_root='{{ dolibarr_dir }}/htdocs';
+          $dolibarr_main_data_root='{{ wwwroot_dir }}/dolibarr_documents';
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0644'
+        backup: yes
+      when: scope is defined and scope == 'deploy'
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar todos los enlaces simbólicos creados"
+      stat:
+        path: "{{ item }}"
+      register: final_symlinks_check
+      loop:
+        - "{{ sellyoursaas_custom_dir }}"
+        - "{{ myaccount_dir }}/source"
+        - "{{ myaccount_dir }}/main.inc.php"
+
+    - name: "Mostrar estado final de enlaces simbólicos"
+      debug:
+        msg: 
+          - "{{ item.item }}:"
+          - "  Existe: {{ item.stat.exists }}"
+          - "  Es enlace: {{ item.stat.islnk | default(false) }}"
+          - "  Destino: {{ item.stat.lnk_target | default('N/A') }}"
+          - "  Estado: {{ 'OK' if (item.stat.exists and item.stat.islnk) else 'ERROR' }}"
+      loop: "{{ final_symlinks_check.results }}"
+
+    - name: "Verificar que los destinos de los enlaces existen"
+      stat:
+        path: "{{ item }}"
+      register: target_dirs_check
+      loop:
+        - "{{ dolibarr_sellyoursaas_dir }}"
+        - "{{ dolibarr_dir }}/htdocs"
+        - "{{ dolibarr_dir }}/htdocs/main.inc.php"
+
+    - name: "Mostrar estado de destinos de enlaces"
+      debug:
+        msg: "Destino {{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ target_dirs_check.results }}"
+
+    # =============================================================================
+    # PROBAR FUNCIONAMIENTO
+    # =============================================================================
+    - name: "Probar acceso a través de enlaces simbólicos"
+      shell: |
+        echo "=== PRUEBAS DE ACCESO ==="
+        
+        # Probar sellyoursaas
+        if [ -d "{{ sellyoursaas_custom_dir }}" ]; then
+          echo "✓ sellyoursaas: OK ($(ls {{ sellyoursaas_custom_dir }} | wc -l) archivos)"
+        else
+          echo "✗ sellyoursaas: ERROR"
+        fi
+        
+        # Probar source
+        if [ -d "{{ myaccount_dir }}/source" ]; then
+          echo "✓ source: OK ($(ls {{ myaccount_dir }}/source | wc -l) archivos)"
+        else
+          echo "✗ source: ERROR"
+        fi
+        
+        # Probar main.inc.php
+        if [ -f "{{ myaccount_dir }}/main.inc.php" ]; then
+          echo "✓ main.inc.php: OK ($(wc -l < {{ myaccount_dir }}/main.inc.php) líneas)"
+        else
+          echo "✗ main.inc.php: ERROR"
+        fi
+        
+        echo "========================="
+      register: access_tests
+      changed_when: false
+
+    - name: "Mostrar resultados de pruebas de acceso"
+      debug:
+        msg: "{{ access_tests.stdout_lines }}"
+
+    # =============================================================================
+    # VERIFICAR BACKUPS CREADOS
+    # =============================================================================
+    - name: "Buscar backups creados"
+      shell: "ls -la {{ custom_dir }}/sellyoursaas_backup_* 2>/dev/null || echo 'No hay backups'"
+      register: backups_found
+      changed_when: false
+
+    - name: "Mostrar backups disponibles"
+      debug:
+        msg:
+          - "=== BACKUPS DISPONIBLES ==="
+          - "{{ backups_found.stdout_lines }}"
+          - "============================"
+
+    # =============================================================================
+    # MOSTRAR RESUMEN FINAL
+    # =============================================================================
+#   - name: "Mostrar resumen de instalación de Dolibarr framework"
+#     debug:
+#       msg:
+#         - "=== INSTALACIÓN DOLIBARR FRAMEWORK COMPLETADA ==="
+#         - "Tipo: {{ 'DEPLOYMENT SERVER' if (scope is defined and scope == #deploy') else 'MASTER/STANDARD SERVER' }}"
+#         - ""
+#         - "Enlaces simbólicos creados:"
+#         - "1. {{ sellyoursaas_custom_dir }} -> {{ dolibarr_sellyoursaas_dir #}"
+#         - "2. {{ myaccount_dir }}/source -> {{ dolibarr_dir }}/htdocs"
+#         - "3. {{ myaccount_dir }}/main.inc.php -> {{ dolibarr_dir #}/htdocs/main.inc.php"
+#         - "{{ '4. Archivo conf.php creado en ' + dolibarr_dir + #/htdocs/conf/' if (scope is defined and scope == 'deploy') else '' }}"
+#         - ""
+#         - "{{ 'NOTA: Se creó backup del directorio existente' if #ackup_result is defined and 'Backup creado' in backup_result.stdout else '' #}"
+#         - "================================================="
+
+#    - name: "Mostrar comandos para verificación manual"
+#        debug:
+#          msg:
+#            - "=== COMANDOS PARA VERIFICACIÓN ==="
+#            - "Ver estructura: tree {{ custom_dir }}/ -L 3"
+#            - "Ver enlaces: ls -la {{ custom_dir }}/"
+#            - "Ver myaccount: ls -la {{ myaccount_dir }}/"
+#            - "Verificar sellyoursaas: ls {{ sellyoursaas_custom_dir }}/ | head -5"
+#            - "Verificar source: ls {{ myaccount_dir }}/source/ | head -5"
+#            - "Verificar main.inc.php: head -5 {{ myaccount_dir }}/main.inc.php"
+#            - "Ver backups: ls -la {{ custom_dir }}/sellyoursaas_backup_*"
+#            - "{{ 'Ver conf.php: cat ' + dolibarr_dir + '/htdocs/conf/conf.php' if (scope is defined and scope == 'deploy') else '' }}"
+#            - "================================="

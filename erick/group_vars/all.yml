@@ -1,0 +1,414 @@
+# =============================================================================
+# Variables de Configuración para SellYourSaas
+# =============================================================================
+domain: 'j-cloud.com.mx'
+subdomain: 'a1'
+networking:
+  address: '192.168.178.0' # Dirección de red interna
+  mask: '/24'  # Máscara de red para la red interna
+
+# === CONFIGURACIÓN DE SERVIDORES ===
+# =============================================================================
+# Este bloque define la configuración de los servidores utilizados en el entorno
+# No  confundir  con  la configuración que hay en hosts, que es para definir los
+# hosts de Ansible
+# =============================================================================
+master_server:
+  hostname: 'master'
+  ip: '195.201.216.33'
+  ip_internal: '192.168.178.2'
+  domain: '{{ domain }}'  # Dominio para el servidor Master
+  fqdn: 'master.{{ domain}}'
+
+deployment_server:
+  hostname: 'deploy'
+  ip: '37.27.47.57'
+  ip_internal: '192.168.178.3'
+  domain: '{{ domain }}'  # Dominio para instancias
+  fqdn: 'deploy.{{ domain }}'
+
+password_policy:
+  min_length: 6
+  max_length: 64
+  require_uppercase: true
+  require_lowercase: true
+  require_numbers: true
+  require_special: true
+
+# === USUARIOS Y CONTRASEÑAS ===
+system_users:
+  unix_admin: 'myunixlogin'
+  unix_admin_password: 'iI7N-p0U12_p'
+  admin: 'admin'
+  admin_password: 'ThC2g@49n9c~'
+  UnixPersonalSysadmin: 'jpyrsaadmin'
+  UnixPersonalSysadmin_password: 'iI7N-p0U12_p'
+
+  
+  app_admin: 'admin'
+  passwords:
+    root: 'iI7N-p0U12_p'
+    admin: 'iI7N-p0U12_p'
+
+# === USUARIO PERSONAL SYSADMIN ===
+personal_sysadmin_user: 'jpyrsaadmin'
+personal_sysadmin_user_password: 'iI7N-p0U12_p'
+
+# === CLAVES SSH ===
+ssh_config:
+  port: 22
+  
+ssh_keys:
+  admin_public: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... admin@j-cloud.com.mx'
+  root_public: 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... root@j-cloud.com.mx'
+
+# === APLICACIÓN ===
+dolibarr:
+  #version: '22.0'
+  #download_url: 'https://github.com/Dolibarr/dolibarr/archive/refs/tags/{{ dolibarr.version }}.tar.gz'
+  git_repo: 'https://github.com/Dolibarr/dolibarr'
+  branch: '22.0' ## 22.0
+  repo: 'https://github.com/Dolibarr/dolibarr.git'
+  
+sellyoursaas:
+  #git_repo: 'https://github.com/dolicloud/sellyoursaas'
+  repo: 'https://github.com/dolicloud/sellyoursaas'
+  branch: 'master'
+  cookie_key: '{{ ansible_hostname }}-{{ ansible_date_time.epoch }}'  # Se genera automáticamente
+
+# === BASE DE DATOS ===
+database:
+  host: '{{ master_server.ip }}'
+  port: 3306
+  main_db: 'dolibarr_main'  # Base de datos principal como en main.md
+  user: 'sellyoursaas'
+  password: 'iI7N-p0U12_p'
+  root_password: 'iI7N-p0U12_p'
+
+
+database_deploySaas:
+  host: '192.168.178.2'
+  port: 3306
+  schema: 'sellyoursaas'  # Base de datos principal como en main.md
+  user: 'sellyoursaas'
+  password: 'iI7N-p0U12_p'
+
+php:
+  version: '8.3'
+  memory_limit: '512M'
+  upload_max_filesize: '100M'
+  post_max_size: '100M'
+  max_execution_time: '300'
+maxscale:
+  version: '22.08.7'
+  download_url: 'https://dlm.mariadb.com/3310075/MaxScale/22.08.7/packages/ubuntu/focal/x86_64/maxscale-22.08.7-1.ubuntu.focal.x86_64.deb'
+
+# === DIRECTORIOS ===
+directories:
+  # Directorios principales
+  wwwroot: '/home/{{ system_users.admin }}/wwwroot'
+  logs: '/home/{{ system_users.admin }}/logs'
+  backup: '/home/{{ system_users.admin }}/backup'
+  documents: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents'
+
+  # Directorios de montaje (como en main.md)
+  diskhome: '/mnt/diskhome'
+  diskbackup: '/mnt/diskbackup'
+  
+  # Directorios específicos para deployment
+  instances: '/mnt/diskhome/home'  # Donde se crean las instancias
+  jail: '/home/jail'
+  archives_test: '/mnt/diskbackup/archives-test'
+  archives_paid: '/mnt/diskbackup/archives-paid'
+  
+  # Directorios de SellYourSaas
+  scripts: '/home/{{ system_users.admin }}/wwwroot/dolibarr_sellyoursaas/scripts'
+  templates: '/home/{{ system_users.admin }}/templates'
+  backups: '/mnt/diskbackup/backup'
+  sellyoursaas_d: '/etc/sellyoursaas.d'
+  
+  # NFS mount point
+  nfs_mount: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents/sellyoursaas'
+
+# === NFS ===
+nfs:
+  # En master: exportar backup
+  export_path: '/home/{{ system_users.admin }}/wwwroot/dolibarr_documents/sellyoursaas'
+  export_options: '{{ deployment_server.ip }}(rw,sync,no_subtree_check,no_root_squash)'
+  
+  # En deployment: montar desde master
+  master_export: '{{ master_server.ip }}:{{ directories.backups }}'
+  mount_point: '{{ directories.nfs_mount }}'
+
+# === CONFIGURACIÓN DE DISCOS ===
+disk_configuration:
+  device: '/dev/sdb'  # Disco adicional por defecto
+  filesystem_type: 'ext4'
+  mount_options: 'discard,nofail,defaults'
+  auto_mount: true
+  format_disk: false  # Cambiar a true si quieres formatear automáticamente
+  optimize_memory: true
+
+# === EMAIL Y NOTIFICACIONES ===
+email:
+  smtp_server: 'localhost'
+  smtp_port: 25
+  from: 'soporte@jpyrsa.mx'
+
+notifications:
+  email: 'admin@{{ master_server.domain }}'
+
+# === PAQUETES A INSTALAR ===
+## Tomado desde Dolibarr
+
+packages_basic:
+#  - ntp
+  - git
+  - gzip
+  - zip
+  - zstd
+  - memcached
+  - ncdu
+  - duc
+  - iotop
+  - acl
+  - snapd
+  - ghostscript
+  - mc
+
+packages_database:
+  - mariadb-server
+  - mariadb-client
+
+packages_web:
+  - apache2
+  - apache2-bin
+  - lynx
+
+packages_php:
+  - php
+  - php-cli
+  - libapache2-mod-php
+  #- php-fpm
+  - php-gd
+  - php-imap
+  - php-json
+  - php-ldap
+  - php-mysql
+  - php-curl
+  - php-memcached
+  - php-imagick
+  #- php-geoip
+  - php-intl
+  - php-xml
+  - php-zip
+  - php-bz2
+  - php-ssh2
+  - php-mbstring
+  - php-soap
+  - php-readline
+  - php-xmlrpc
+  - php-pear
+  - php-dev
+  - libmcrypt-dev
+  - php-readline
+  - php-xmlrpc
+
+
+packages_security:
+  - libapache2-mod-apparmor
+  - apparmor
+  - apparmor-profiles
+  - apparmor-utils
+  - rkhunter
+  - chkrootkit
+  - spamc
+  - spamassassin
+  - clamdscan
+  - clamav-daemon
+  - fail2ban
+  - watchdog
+  - cpulimit
+  - libapache2-mpm-itk
+
+packages_additional:
+  - bind9
+  - libreoffice-common
+  - libreoffice-writer
+  - mailutils
+  - postfix
+  - snapd
+
+# === MÓDULOS APACHE ===
+apache_modules:
+  - actions
+  - alias
+  - asis
+  - auth_basic
+  - auth_digest
+  - authn_anon
+  - authn_dbd
+  - authn_dbm
+  - authn_file
+  - authz_dbm
+  - authz_groupfile
+  - authz_host
+  - authz_owner
+  - authz_user
+  - autoindex
+  - cache
+  - cgid
+  - cgi
+  - charset_lite
+  - dav_fs
+  - dav
+  - dav_lock
+  - dbd
+  - deflate
+  - dir
+  # - dump_io
+  - env
+  - expires
+  - ext_filter
+  - file_cache
+  - filter
+  - headers
+  - http2
+  - ident
+  - include
+  - info
+  - ldap
+#  - mem_cache
+  - cache
+  - mime
+  - mime_magic
+  - negotiation
+  - reqtimeout
+  - rewrite
+  - setenvif
+  - speling
+  - ssl
+  - status
+  - substitute
+  - suexec
+  - unique_id
+  - userdir
+  - usertrack
+  - vhost_alias
+  - mpm_itk
+  - mpm_prefork
+  - php
+
+# === CONFIGURACIONES APACHE ===
+apache_configs:
+  - charset
+  - localized-error-pages
+  - other-vhosts-access-log
+  - security
+
+# === CRON JOBS ===
+cron_jobs:
+  master:
+    - name: 'Backup MySQL system'
+      minute: '10'
+      hour: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_mysql_system.sh confirm >{{ directories.logs }}/backup_mysql_system.log 2>&1'
+    - name: 'Set permissions'
+      minute: '40'
+      hour: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/perms.sh > {{ directories.logs }}/perms.log'
+    - name: 'Backup backups'
+      minute: '0'
+      hour: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/backup_backups.sh confirm none --delete >{{ directories.logs }}/backup_backups.log 2>&1'
+    - name: 'clean.sh confirm'
+      minute: '40'
+      hour: '4'
+      day: '4'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/clean.sh confirm'
+  master_as_admin:
+#    - name: 'Detect evil instances'
+#      minute: '0'
+#      hour: '9'
+#      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_detect_evil_instances.php test 86400 > {{ directories.logs }}/batch_detect_evil_instances.log 2>&1'
+    - name: 'cron_run_jobs.php'
+      minute: '*/10'
+      hour: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/scripts/cron/cron_run_jobs.php <securitykeydefinedinscheduledjobsetup> anonymousbatch >> {{ directories.wwwroot }}/dolibarr_documents/cron_run_jobs.php.log 2>&1'
+    - name: 'batch_customers'
+      minute: '5'
+      hour: '5'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php updatestatsonly >> /home/admin/logs/batch_customers-updatedatabase.log 2>&1'
+    - name: 'git_update_sources'
+      minute: '7'
+      hour: '7'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/git_update_sources.sh {{ directories.wwwroot }}/dolibarr_documents/sellyoursaas/git >> /home/admin/logs/git_update_sources.log 2>&1'
+
+  deployment:
+    
+#    - name: 'git_update_sellyoursaas.sh'
+#      minute: '7'
+#      hour: '7'
+#      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/git_update_sellyoursaas.sh /home/admin/wwwroot >> /home/admin/logs/git_update_sellyoursaas.log 2>&1'
+    - name: 'Clean instances'
+      minute: '40'
+      hour: '5'
+      day: '0'
+      job: '{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php backupdelete >> /home/admin/logs/batch_customers-backup.log 2>&1'
+
+# === WATCHDOGS ===
+watchdog_services:
+  - apache_watchdog_launcher1
+  - apache_watchdog_launcher2
+  - apache_watchdog_launcher3
+  - smtp_watchdog_launcher1
+
+# === FAIL2BAN FILTERS (DEPLOYMENT) ===
+fail2ban_filters:
+  - email-dolibarr-ruleskoblacklist.conf
+  - email-dolibarr-ruleskoquota.conf
+  - email-dolibarr-rulesko.conf
+  - email-dolibarr-rulesall.conf
+  - email-dolibarr-rulesadmin.conf
+  - web-accesslog-limit403.conf
+  - web-dolibarr-rulespassforgotten.conf
+  - web-dolibarr-rulesbruteforce.conf
+  - web-dolibarr-ruleslimitpublic.conf
+  - web-dolibarr-rulesregisterinstance.conf
+
+# === FAIL2BAN JAILS ===
+fail2ban_jails_deployment:
+  - email-dolibarr-ruleskoblacklist.conf
+  - email-dolibarr-ruleskoquota.conf
+  - email-dolibarr-rulesko.conf
+  - email-dolibarr-rulesall.conf
+  - email-dolibarr-rulesadmin.conf
+  - web-accesslog-limit403.conf
+
+fail2ban_jails_master:
+  - web-dolibarr-rulespassforgotten.conf
+  - web-dolibarr-rulesbruteforce.conf
+  - web-dolibarr-ruleslimitpublic.conf
+  - web-dolibarr-rulesregisterinstance.conf
+
+# === ARCHIVOS DE LOG ===
+log_files:
+  root:
+    - /var/log/phpmail.log
+    - /var/log/phpsendmail.log
+    - /var/log/daemon.log
+  
+  admin:
+    - '{{ directories.documents }}/dolibarr_register.log'
+    - '{{ directories.documents }}/dolibarr.log'
+
+# === BLACKLIST FILES ===
+blacklist_files:
+  - blacklistmail
+  - blacklistip
+  - blacklistfrom
+  - blacklistcontent
+
+# === SHELL POR DEFECTO (DEPLOYMENT) ===
+default_shell_path: '/bin/bash'
+default_sh_link: '/bin/sh'

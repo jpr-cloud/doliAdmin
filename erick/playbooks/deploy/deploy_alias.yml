@@ -1,0 +1,34 @@
+# =============================================================================
+# Configuración de Alias del Sistema
+# =============================================================================
+---
+- name: "Add alias"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Add at the end of /etc/bash.bashrc"
+      blockinfile:
+        path: /etc/bash.bashrc
+        block: |
+          # SellYourSaas Aliases
+          alias psld='ps -fax -eo user:12,pid,ppid,pcpu,pmem,vsz:12,size:12,tty,start_time:6,utime,time,context,cmd'
+          alias ll='ls -alF'
+          alias la='ls -A'
+          alias l='ls -CF'
+          alias 'ip -c=auto'
+
+          # History configuration
+          HISTIGNORE='-*'
+          export HISTIGNORE
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS ALIASES"
+
+    - name: "Verificar que se agregaron los alias"
+      command: tail -10 /etc/bash.bashrc
+      register: bashrc_check
+      changed_when: false
+
+    - name: "Mostrar alias configurados"
+      debug:
+        msg: "Alias configurados en /etc/bash.bashrc"

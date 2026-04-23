@@ -1,0 +1,28 @@
+# =============================================================================
+# Choice a Hostname for the server(s) and set it
+# =============================================================================
+# Este archivo contiene las tareas para configurar hostname
+# Puede ser incluido en otros playbooks usando include_tasks
+# =============================================================================
+---
+- name: Configurar hostname del servidor
+  hostname:
+    name: "{{ target }}"
+  become: true
+  
+- name: Verificar hostname configurado
+  command: hostname
+  register: current_hostname
+  become: true
+  
+- name: Mostrar hostname actual
+  debug:
+    msg: "Hostname configurado: {{ current_hostname.stdout }}"
+
+- name: Actualizar /etc/hosts con el nuevo hostname
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1'
+    line: "127.0.1.1 {{ target | default(master_server.hostname) }}"
+    backup: yes
+  become: true

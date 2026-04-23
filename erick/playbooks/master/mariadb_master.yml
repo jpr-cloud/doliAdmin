@@ -1,0 +1,25 @@
+---
+- name: Cambiar bind-address en archivo de configuración
+  hosts: all
+  become: true  # Necesario para modificar archivos con permisos de root
+
+  tasks:
+    - name: Buscar y reemplazar bind-address
+      lineinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf # Reemplaza con la ruta correcta
+        regexp: '^bind-address =.*'
+        line: 'bind-address = 0.0.0.0'  # Reemplaza con la nueva dirección IP
+      notify:
+        - reiniciar_servicio  # Opcional: Notifica para reiniciar el servicio
+
+  handlers:
+    - name: reiniciar_servicio
+      service:
+        name: mariadb  # Reemplaza con el nombre del servicio
+        state: restarted
+
+#    - name: "Crear base de datos"
+#      become: true
+#      shell: "{{ mariadb_install_dir }}/bin/mysql -u root -p{{ mariadb_root_password }} -e \"SET GLOBAL read_only = 1;\""
+#      args:
+#        executable: /bin/bash

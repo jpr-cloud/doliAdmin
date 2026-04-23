@@ -1,0 +1,41 @@
+---
+- name: "geoip"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Crear directorio para MaxMind"
+      ansible.builtin.file:
+        path: /home/{{ system_users.admin }}/tools/maxmind/
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+
+    - name: "Descargar GeoLite2-Country.mmdb.gz"
+      get_url:
+        url: https://cdn.jsdelivr.net/npm/geolite2-country@1.0.2/GeoLite2-Country.mmdb.gz
+        dest: /home/{{ system_users.admin }}/tools/maxmind/GeoLite2-Country.mmdb.gz
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0644'
+
+    - name: "Descomprimir archivo con gunzip"
+      shell: |
+        cd /home/{{ system_users.admin }}/tools/maxmind/
+        gunzip -f GeoLite2-Country.mmdb.gz
+      args:
+        creates: /home/{{ system_users.admin }}/tools/maxmind/GeoLite2-Country.mmdb
+      become_user: "{{ system_users.admin }}"
+
+    - name: "Verificar archivo descomprimido"
+      stat:
+        path: /home/{{ system_users.admin }}/tools/maxmind/GeoLite2-Country.mmdb
+      register: geoip_mmdb
+
+    - name: "Mostrar información del archivo"
+      debug:
+        msg: 
+          - "Archivo: /home/{{ system_users.admin }}/tools/maxmind/GeoLite2-Country.mmdb"
+          - "Existe: {{ geoip_mmdb.stat.exists }}"
+          - "Tamaño: {{ geoip_mmdb.stat.size | default(0) }} bytes"

@@ -1,0 +1,49 @@
+name: Deploy SellYourSaas
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target to deploy (master, deploy, or both)'
+        required: true
+        default: 'master'
+        type: choice
+        options:
+        - master
+        - deploy
+        - both
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install Ansible
+      run: |
+        pip install ansible
+        
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        
+    - name: Deploy Master
+      if: ${{ github.event.inputs.target == 'master' || github.event.inputs.target == 'both' }}
+      run: |
+        cd erick
+        ansible-playbook -i hosts_master_only.cfg install_master_only.yml -v
+        
+    - name: Deploy Deployment Server
+      if: ${{ github.event.inputs.target == 'deploy' || github.event.inputs.target == 'both' }}
+      run: |
+        cd erick
+        ansible-playbook -i hosts_deploy_only.cfg install_deploy_only.yml -v

@@ -1,0 +1,277 @@
+# =============================================================================
+# Configuración de systemd-journald para gestión de journals
+# =============================================================================
+# Este playbook configura el tamaño máximo y gestión de journals del sistema
+# Los journals se almacenan en /var/log/journal/ o en memoria /run/log/journal/
+# =============================================================================
+---
+- name: "Configuración de systemd-journald"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    journal_max_size: "{{ journald.max_size | default('1G') }}"
+    journal_vacuum_size: "{{ journald.vacuum_size | default('1G') }}"
+    journal_vacuum_time: "{{ journald.vacuum_time | default('1d') }}"
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN INICIAL
+    # =============================================================================
+    - name: "Verificar estado actual de systemd-journald"
+      systemd:
+        name: systemd-journald
+      register: journald_status
+
+    - name: "Mostrar estado de systemd-journald"
+      debug:
+        msg:
+          - "Estado systemd-journald: {{ journald_status.status.ActiveState }}"
+          - "Configuración aplicada: {{ 'SÍ' if journald_status.status.UnitFileState == 'static' else 'NO' }}"
+
+    - name: "Verificar ubicación actual de journals"
+      shell: "ls -la /var/log/journal/ /run/log/journal/ 2>/dev/null || echo 'Directorios no encontrados'"
+      register: journal_locations
+      changed_when: false
+
+    - name: "Mostrar ubicaciones de journals"
+      debug:
+        msg: "{{ journal_locations.stdout_lines }}"
+
+    - name: "Obtener información actual de uso de disco de journals"
+      command: "journalctl --disk-usage"
+      register: current_disk_usage
+      changed_when: false
+
+    - name: "Mostrar uso actual de disco"
+      debug:
+        msg: "{{ current_disk_usage.stdout_lines }}"
+
+    # =============================================================================
+    # BACKUP DE CONFIGURACIÓN ACTUAL
+    # =============================================================================
+    - name: "Crear backup de configuración actual"
+      copy:
+        src: /etc/systemd/journald.conf
+        dest: "/etc/systemd/journald.conf.backup.{{ ansible_date_time.epoch }}"
+        remote_src: yes
+        backup: yes
+
+    - name: "Mostrar configuración actual de journald"
+      shell: "grep -v '^#' /etc/systemd/journald.conf | grep -v '^$'"
+      register: current_config
+      changed_when: false
+
+    - name: "Mostrar configuración actual"
+      debug:
+        msg: "{{ current_config.stdout_lines | default(['Configuración vacía o solo comentarios']) }}"
+
+    # =============================================================================
+    # CONFIGURAR /etc/systemd/journald.conf
+    # =============================================================================
+    - name: "Configurar SplitMode en journald.conf"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SplitMode='
+        line: 'SplitMode=none'
+        backup: yes
+      notify: restart journald
+
+    - name: "Configurar SystemMaxUse en journald.conf"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxUse='
+        line: 'SystemMaxUse={{ journal_max_size }}'
+        backup: yes
+      notify: restart journald
+
+    - name: "Configurar Storage para persistencia"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?Storage='
+        line: 'Storage=persistent'
+        backup: yes
+      notify: restart journald
+
+    - name: "Configurar SystemMaxFileSize"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?SystemMaxFileSize='
+        line: 'SystemMaxFileSize=128M'
+        backup: yes
+      notify: restart journald
+
+    - name: "Configurar MaxRetentionSec (retención máxima)"
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?MaxRetentionSec='
+        line: 'MaxRetentionSec=7day'
+        backup: yes
+      notify: restart journald
+
+    # =============================================================================
+    # CREAR DIRECTORIO DE JOURNALS SI NO EXISTE
+    # =============================================================================
+    - name: "Crear directorio /var/log/journal si no existe"
+      file:
+        path: /var/log/journal
+        state: directory
+        owner: root
+        group: systemd-journal
+        mode: '0755'
+
+    - name: "Crear directorio específico para la máquina"
+      shell: "systemd-machine-id-setup"
+      ignore_errors: yes
+
+    # =============================================================================
+    # MOSTRAR NUEVA CONFIGURACIÓN
+    # =============================================================================
+    - name: "Mostrar nueva configuración de journald"
+      shell: "grep -E '^(SplitMode|SystemMaxUse|Storage|SystemMaxFileSize|MaxRetentionSec)=' /etc/systemd/journald.conf"
+      register: new_config
+      changed_when: false
+
+    - name: "Mostrar configuración aplicada"
+      debug:
+        msg:
+          - "=== NUEVA CONFIGURACIÓN JOURNALD ==="
+          - "{{ new_config.stdout_lines }}"
+          - "===================================="
+
+    # =============================================================================
+    # REINICIAR SERVICIO MANUALMENTE
+    # =============================================================================
+    - name: "Parar systemd-journald"
+      systemd:
+        name: systemd-journald
+        state: stopped
+
+    - name: "Iniciar systemd-journald"
+      systemd:
+        name: systemd-journald
+        state: started
+
+    - name: "Verificar estado después del reinicio"
+      systemd:
+        name: systemd-journald
+      register: journald_status_after
+
+    - name: "Mostrar estado después del reinicio"
+      debug:
+        msg: "systemd-journald: {{ journald_status_after.status.ActiveState }}"
+
+    # =============================================================================
+    # LIMPEZA Y OPTIMIZACIÓN DE JOURNALS
+    # =============================================================================
+    - name: "Forzar flush y rotación de journals"
+      command: "journalctl --flush --rotate"
+      register: flush_result
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de flush"
+      debug:
+        msg: "Flush y rotación: {{ 'EXITOSO' if flush_result.rc == 0 else 'CON ERRORES' }}"
+
+    - name: "Limpiar journals por tamaño"
+      command: "journalctl --vacuum-size={{ journal_vacuum_size }}"
+      register: vacuum_size_result
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de limpieza por tamaño"
+      debug:
+        msg: 
+          - "Limpieza por tamaño ({{ journal_vacuum_size }}): {{ 'EXITOSA' if vacuum_size_result.rc == 0 else 'CON ERRORES' }}"
+          - "{{ vacuum_size_result.stdout_lines | default(['Sin salida']) }}"
+
+    - name: "Limpiar journals por tiempo"
+      command: "journalctl --vacuum-time={{ journal_vacuum_time }}"
+      register: vacuum_time_result
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de limpieza por tiempo"
+      debug:
+        msg: 
+          - "Limpieza por tiempo ({{ journal_vacuum_time }}): {{ 'EXITOSA' if vacuum_time_result.rc == 0 else 'CON ERRORES' }}"
+          - "{{ vacuum_time_result.stdout_lines | default(['Sin salida']) }}"
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Obtener nueva información de uso de disco"
+      command: "journalctl --disk-usage"
+      register: new_disk_usage
+      changed_when: false
+
+    - name: "Mostrar nuevo uso de disco"
+      debug:
+        msg: 
+          - "=== USO DE DISCO DESPUÉS DE LIMPIEZA ==="
+          - "{{ new_disk_usage.stdout_lines }}"
+          - "========================================"
+
+    - name: "Obtener información de headers de journals"
+      command: "journalctl --header"
+      register: journal_headers
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar headers de journals (primeras 20 líneas)"
+      debug:
+        msg: "{{ journal_headers.stdout_lines[:20] | default(['Error obteniendo headers']) }}"
+
+    - name: "Verificar archivos de journal"
+      shell: "find /var/log/journal -name '*.journal' -ls 2>/dev/null | head -10"
+      register: journal_files
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar archivos de journal"
+      debug:
+        msg: "{{ journal_files.stdout_lines | default(['No se encontraron archivos journal']) }}"
+
+    - name: "Verificar configuración aplicada"
+      shell: "systemctl show systemd-journald | grep -E '(SplitMode|SystemMaxUse)'"
+      register: runtime_config
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar configuración en runtime"
+      debug:
+        msg: "{{ runtime_config.stdout_lines | default(['Error obteniendo configuración runtime']) }}"
+
+    # =============================================================================
+    # MOSTRAR COMANDOS ÚTILES
+    # =============================================================================
+    - name: "Mostrar comandos útiles para gestión de journals"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES JOURNALCTL ==="
+          - "Ver uso de disco: journalctl --disk-usage"
+          - "Ver headers: journalctl --header"
+          - "Limpiar por tamaño: journalctl --vacuum-size=1G"
+          - "Limpiar por tiempo: journalctl --vacuum-time=1d"
+          - "Flush y rotar: journalctl --flush --rotate"
+          - "Ver logs en tiempo real: journalctl -f"
+          - "Ver logs de servicio: journalctl -u nombre-servicio"
+          - "Ver logs desde boot: journalctl -b"
+          - "=================================="
+
+    - name: "Mostrar resumen de configuración"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN JOURNALD COMPLETADA ==="
+          - "Tamaño máximo: {{ journal_max_size }}"
+          - "Modo split: none (un solo archivo)"
+          - "Storage: persistent (/var/log/journal)"
+          - "Tamaño máximo por archivo: 128M"
+          - "Retención máxima: 7 días"
+          - "Estado servicio: {{ journald_status_after.status.ActiveState }}"
+          - "=========================================="
+
+  handlers:
+    - name: restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted

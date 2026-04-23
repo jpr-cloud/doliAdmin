@@ -1,0 +1,43 @@
+---
+- name: "Setup of PHP"
+  hosts: '{{ target }}'
+  gather_facts: no
+  tasks:
+    - name: Secure the directory of PHP sessions /dev/shm
+      ansible.builtin.file:
+        path: /dev/shm
+        mode: '0733'
+        state: directory
+        recurse: true
+    - name: Set sticky bit for PHP session directories /var/lib/php/sessions
+      ansible.builtin.file:
+        path: /var/lib/php/sessions
+        mode: '1733'
+        state: directory
+        recurse: true
+    - name: "Define size of upload and session options"
+      blockinfile:
+        path: /etc/php/sellyoursaas.ini
+        create: yes
+        block: |
+          link:repository_root/etc/php/sellyoursaas.ini[role=include]
+        marker: "# {mark} ANSIBLE MANAGED Setup PHP"
+    - name: "Crear enlaces simbólicos para configuración PHP"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: link
+        force: yes
+      loop:
+        - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/apache2/conf.d/99-sellyoursaas.ini' }
+        - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/cli/conf.d/99-sellyoursaas.ini' }
+#        - { src: '/etc/php/sellyoursaas.ini', dest: '/etc/php/{{ php.version }}/fpm/conf.d/99-sellyoursaas.ini' }
+    - name: "Add a wrapper PHP for the mail() function"
+      file:
+        path: "{{ item }}"
+        state: touch
+      loop:
+        - /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistmail;
+        - /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistip;
+        - /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistfrom;
+        - /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam/blacklistcontent;

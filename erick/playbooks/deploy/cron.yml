@@ -1,0 +1,312 @@
+# =============================================================================
+# Configuración Cron específica para Deploy
+# =============================================================================
+# Configura las tareas cron exactas requeridas para servidores deployment
+# de SellYourSaas según la documentación oficial
+# =============================================================================
+---
+- name: "Configuración Cron Deploy"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    dolibarr_scripts: "{{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/scripts"
+    admin_logs: "{{ directories.wwwroot }}/../logs"
+
+  tasks:
+    # =============================================================================
+    # VERIFICAR PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que los scripts de SellYourSaas existen"
+      stat:
+        path: "{{ dolibarr_scripts }}/{{ item }}"
+      register: scripts_check
+      loop:
+        - backup_mysql_system.sh
+        - perms.sh
+        - backup_backups.php
+        - batch_detect_evil_instances.php
+        - clean.sh
+        - batch_customers.php
+
+    - name: "Mostrar estado de scripts requeridos"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ scripts_check.results }}"
+
+    - name: "Verificar directorio de logs"
+      file:
+        path: "{{ admin_logs }}"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0755'
+
+    # =============================================================================
+    # CRON PARA USUARIO ROOT
+    # =============================================================================
+    - name: "Configurar tareas cron para usuario root (deployment server)"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: root
+        state: "{{ item.state | default('present') }}"
+      loop:
+        # Backup de MySQL del sistema
+        - name: "SellYourSaas backup MySQL system"
+          minute: "10"
+          hour: "0"
+          job: "{{ dolibarr_scripts }}/backup_mysql_system.sh confirm >{{ admin_logs }}/backup_mysql_system.log 2>&1"
+        
+        # Script de permisos
+        - name: "SellYourSaas perms script"
+          minute: "00"
+          hour: "4"
+          job: "{{ dolibarr_scripts }}/perms.sh >{{ admin_logs }}/perms.log"
+        
+        # Backup de backups
+        - name: "SellYourSaas backup backups"
+          minute: "40"
+          hour: "15"
+          job: "{{ dolibarr_scripts }}/backup_backups.php confirm none --delete >{{ admin_logs }}/backup_backups.log 2>&1"
+        
+        # Detección de instancias maliciosas
+        - name: "SellYourSaas detect evil instances"
+          minute: "00"
+          hour: "9"
+          job: "{{ dolibarr_scripts }}/batch_detect_evil_instances.php test 86400 > {{ admin_logs }}/batch_detect_evil_instances.log 2>&1"
+        
+        # Script de limpieza (comentado por defecto)
+        - name: "SellYourSaas clean script (disabled)"
+          minute: "40"
+          hour: "4"
+          day: "4"
+          job: "{{ dolibarr_scripts }}/clean.sh confirm"
+          state: absent  # Comentado en la documentación
+
+    # =============================================================================
+    # CRON PARA USUARIO ADMIN
+    # =============================================================================
+    - name: "Configurar tareas cron para usuario admin"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: "{{ system_users.admin }}"
+        state: "{{ item.state | default('present') }}"
+      loop:
+        # Git update (comentado por defecto)
+        - name: "SellYourSaas git update (disabled)"
+          minute: "7"
+          hour: "7"
+          job: "{{ dolibarr_scripts }}/git_update_sellyoursaas.sh {{ directories.wwwroot }} >> {{ admin_logs }}/git_update_sellyoursaas.log 2>&1"
+          state: absent  # Comentado en la documentación
+        
+        # Batch customers backup delete
+        - name: "SellYourSaas batch customers backup delete"
+          minute: "20"
+          hour: "0"
+          job: "{{ dolibarr_scripts }}/batch_customers.php backupdelete >> {{ admin_logs }}/batch_customers-backup.log 2>&1"
+
+    # =============================================================================
+    # VERIFICACIÓN DE CRONS INSTALADOS
+    # =============================================================================
+    - name: "Verificar crons instalados para root"
+      command: "crontab -u root -l"
+      register: root_cron_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar crons de root"
+      debug:
+        msg:
+          - "=== CRONS DE ROOT ==="
+          - "{{ root_cron_check.stdout_lines | default(['No hay crons para root']) }}"
+          - "===================="
+
+    - name: "Verificar crons instalados para admin"
+      command: "crontab -u {{ system_users.admin }} -l"
+      register: admin_cron_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar crons de admin"
+      debug:
+        msg:
+          - "=== CRONS DE ADMIN ==="
+          - "{{ admin_cron_check.stdout_lines | default(['No hay crons para admin']) }}"
+          - "====================="
+
+    # =============================================================================
+    # PROBAR LANZAMIENTO DE CRON
+    # =============================================================================
+    - name: "Verificar que cron está ejecutándose"
+      systemd:
+        name: cron
+      register: cron_status
+
+    - name: "Mostrar estado de cron"
+      debug:
+        msg: "Servicio cron: {{ cron_status.status.ActiveState }}"
+
+    - name: "Probar ejecución de cron.daily"
+      shell: "run-parts --report /etc/cron.daily"
+      args:
+        chdir: "/"
+      register: cron_daily_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de prueba cron.daily"
+      debug:
+        msg:
+          - "=== PRUEBA CRON.DAILY ==="
+          - "Resultado: {{ 'EXITOSO' if cron_daily_test.rc == 0 else 'CON ERRORES' }}"
+          - "Scripts ejecutados:"
+          - "{{ cron_daily_test.stdout_lines | default(['Ninguno']) }}"
+          - "Errores:"
+          - "{{ cron_daily_test.stderr_lines | default(['Ninguno']) }}"
+          - "========================="
+
+    - name: "Probar ejecución de cron.weekly"
+      shell: "run-parts --report /etc/cron.weekly"
+      args:
+        chdir: "/"
+      register: cron_weekly_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de prueba cron.weekly"
+      debug:
+        msg:
+          - "=== PRUEBA CRON.WEEKLY ==="
+          - "Resultado: {{ 'EXITOSO' if cron_weekly_test.rc == 0 else 'CON ERRORES' }}"
+          - "Scripts ejecutados:"
+          - "{{ cron_weekly_test.stdout_lines | default(['Ninguno']) }}"
+          - "==========================="
+
+    - name: "Probar ejecución de cron.monthly"
+      shell: "run-parts --report /etc/cron.monthly"
+      args:
+        chdir: "/"
+      register: cron_monthly_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de prueba cron.monthly"
+      debug:
+        msg:
+          - "=== PRUEBA CRON.MONTHLY ==="
+          - "Resultado: {{ 'EXITOSO' if cron_monthly_test.rc == 0 else 'CON ERRORES' }}"
+          - "Scripts ejecutados:"
+          - "{{ cron_monthly_test.stdout_lines | default(['Ninguno']) }}"
+          - "============================"
+
+    # =============================================================================
+    # VERIFICAR ARCHIVOS DE LOG
+    # =============================================================================
+    - name: "Crear archivos de log si no existen"
+      file:
+        path: "{{ admin_logs }}/{{ item }}"
+        state: touch
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+        mode: '0644'
+      loop:
+        - backup_mysql_system.log
+        - perms.log
+        - backup_backups.log
+        - batch_detect_evil_instances.log
+        - git_update_sellyoursaas.log
+        - batch_customers-backup.log
+
+    # =============================================================================
+    # VERIFICAR PERMISOS DE SCRIPTS
+    # =============================================================================
+    - name: "Verificar existencia de scripts"
+      stat:
+        path: "{{ dolibarr_scripts }}/{{ item }}"
+      register: script_exists
+      loop:
+        - backup_mysql_system.sh
+        - perms.sh
+        - clean.sh
+        - git_update_sellyoursaas.sh
+
+    - name: "Verificar permisos de scripts"
+      file:
+        path: "{{ dolibarr_scripts }}/{{ item.item }}"
+        mode: '0755'
+      loop: "{{ script_exists.results }}"
+      when: item.stat.exists
+      ignore_errors: yes
+
+    - name: "Advertir sobre scripts faltantes"
+      debug:
+        msg: "AVISO: El script {{ item.item }} no existe en {{ dolibarr_scripts }}. Esto es normal si aún no has instalado todos los componentes de SellYourSaas."
+      loop: "{{ script_exists.results }}"
+      when: not item.stat.exists
+
+    # =============================================================================
+    # MOSTRAR RESUMEN Y COMANDOS ÚTILES
+    # =============================================================================
+    - name: "Mostrar resumen de configuración cron"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN CRON DEPLOYMENT COMPLETADA ==="
+          - "Crons configurados para root:"
+          - "  - 10 0 * * * backup_mysql_system.sh"
+          - "  - 00 4 * * * perms.sh"
+          - "  - 40 15 * * * backup_backups.php"
+          - "  - 00 9 * * * batch_detect_evil_instances.php"
+          - ""
+          - "Crons configurados para admin:"
+          - "  - 20 0 * * * batch_customers.php backupdelete"
+          - ""
+          - "Estado cron: {{ cron_status.status.ActiveState }}"
+          - "Logs en: {{ admin_logs }}/"
+          - "=================================================="
+
+    - name: "Mostrar comandos útiles para gestión de cron"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Ver crons de root: crontab -u root -l"
+          - "Ver crons de admin: crontab -u {{ system_users.admin }} -l"
+          - "Editar crons de root: crontab -u root -e"
+          - "Probar cron.daily: cd / && run-parts --report /etc/cron.daily"
+          - "Probar cron.weekly: cd / && run-parts --report /etc/cron.weekly"
+          - "Probar cron.monthly: cd / && run-parts --report /etc/cron.monthly"
+          - "Ver logs cron: tail -f /var/log/cron.log"
+          - "Ver logs SellYourSaas: tail -f {{ admin_logs }}/*.log"
+          - "======================="
+
+    # =============================================================================
+    # CONFIGURAR LOGROTATE PARA LOGS DE SELLYOURSAAS
+    # =============================================================================
+    - name: "Configurar logrotate para logs de SellYourSaas"
+      blockinfile:
+        path: /etc/logrotate.d/sellyoursaas-deploy
+        create: yes
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS DEPLOY LOGROTATE"
+        block: |
+          {{ admin_logs }}/*.log {
+              weekly
+              rotate 8
+              compress
+              delaycompress
+              missingok
+              notifempty
+              copytruncate
+              su {{ system_users.admin }} {{ system_users.admin }}
+          }

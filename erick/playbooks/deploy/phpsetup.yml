@@ -1,0 +1,414 @@
+# =============================================================================
+# Configuración PHP Setup para servidores Deployment (PHP >= 8.1)
+# =============================================================================
+# Este playbook configura herramientas de preprocesamiento PHP y configuraciones
+# específicas para SellYourSaas en versiones PHP >= 8.1
+# =============================================================================
+---
+- name: "PHP Setup para versiones >= 8.1 en servidores Deployment"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    wwwroot_dir: "{{ directories.wwwroot }}"
+    dolibarr_dir: "{{ wwwroot_dir }}/dolibarr"
+    documents_dir: "{{ wwwroot_dir }}/dolibarr_documents"
+    sellyoursaas_scripts: "{{ dolibarr_dir }}/htdocs/custom/sellyoursaas/scripts"
+    php_version: "{{ php.version | default('8.3') }}"
+    logs: '{{ directories.logs }}'
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Detectar versión de PHP instalada"
+      shell: "php --version | head -1 | cut -d' ' -f2 | cut -d'.' -f1,2"
+      register: detected_php_version
+      changed_when: false
+
+    - name: "Mostrar versión de PHP detectada"
+      debug:
+        msg: 
+          - "Versión PHP detectada: {{ detected_php_version.stdout }}"
+          - "Versión configurada: {{ php_version }}"
+
+    - name: "Verificar que la versión de PHP es >= 8.1"
+      fail:
+        msg: "Este playbook requiere PHP >= 8.1. Versión actual: {{ detected_php_version.stdout }}"
+      when: detected_php_version.stdout is version('8.1', '<')
+
+    - name: "Verificar que Dolibarr está instalado"
+      stat:
+        path: "{{ dolibarr_dir }}/htdocs"
+      register: dolibarr_check
+
+    - name: "Fallar si Dolibarr no está instalado"
+      fail:
+        msg: "Dolibarr no está instalado en {{ dolibarr_dir }}. Instala primero el framework Dolibarr."
+      when: not dolibarr_check.stat.exists
+
+    - name: "Verificar scripts de preprocesamiento PHP"
+      stat:
+        path: "{{ item }}"
+      register: php_scripts_check
+      loop:
+        - "{{ sellyoursaas_scripts }}/phpsendmailprepend.php"
+        - "{{ sellyoursaas_scripts }}/phpsendmail.php"
+
+    - name: "Mostrar estado de scripts PHP"
+      debug:
+        msg: "{{ item.item | basename }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE - Este script es opcional' }}"
+      loop: "{{ php_scripts_check.results }}"
+
+    - name: "Advertir si los scripts no existen"
+      debug:
+        msg: "AVISO: Scripts de preprocesamiento PHP no encontrados en {{ sellyoursaas_scripts }}. Estos scripts son opcionales y solo necesarios si usas características específicas de SellYourSaas."
+      when: not item.stat.exists
+      loop: "{{ php_scripts_check.results }}"
+
+    # =============================================================================
+    # CREAR ENLACES DUROS A HERRAMIENTAS PHP
+    # =============================================================================
+    - name: "Crear enlaces duros para herramientas de preprocesamiento PHP"
+      file:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        state: hard
+        force: yes
+      loop:
+        - { src: "{{ sellyoursaas_scripts }}/phpsendmailprepend.php", dest: "/usr/local/bin/phpsendmailprepend.php" }
+        - { src: "{{ sellyoursaas_scripts }}/phpsendmail.php", dest: "/usr/local/bin/phpsendmail.php" }
+      when: php_scripts_check.results | selectattr("item", "equalto", item.src) | map(attribute="stat.exists") | first | default(false)
+      ignore_errors: yes
+
+    - name: "Advertir sobre enlaces no creados"
+      debug:
+        msg: "AVISO: No se crearon enlaces duros para los scripts PHP porque los archivos fuente no existen. Esto es normal si no usas las características de envío de correo de SellYourSaas."
+      when: not (php_scripts_check.results | map(attribute="stat.exists") | select | list | length == 2)
+
+    - name: "Verificar enlaces duros creados"
+      stat:
+        path: "{{ item }}"
+      register: hard_links_check
+      loop:
+        - "/usr/local/bin/phpsendmailprepend.php"
+        - "/usr/local/bin/phpsendmail.php"
+
+    - name: "Mostrar estado de enlaces duros"
+      debug:
+        msg: "{{ item.item | basename }}: {{ 'CREADO' if item.stat.exists else 'NO CREADO' }}"
+      loop: "{{ hard_links_check.results }}"
+
+    # =============================================================================
+    # CREAR ARCHIVO DE CONFIGURACIÓN PHP SELLYOURSAAS
+    # =============================================================================
+    - name: "Crear archivo /etc/php/sellyoursaas.ini"
+      copy:
+        dest: /etc/php/sellyoursaas.ini
+        content: |
+          ; SellYourSaas PHP Configuration
+          ; Configuration for bigger file uploads and better performance
+          
+          ; Upload settings
+          upload_max_filesize = 100M
+          post_max_size = 100M
+          max_file_uploads = 50
+          
+          ; Memory and execution settings
+          memory_limit = 512M
+          max_execution_time = 300
+          max_input_time = 300
+          
+          ; Error reporting
+          log_errors = On
+          error_log = {{ logs }}/php_errors.log
+          
+          ; Session settings
+          session.gc_maxlifetime = 7200
+          session.cache_expire = 180
+          
+          ; Other settings
+          max_input_vars = 3000
+          allow_url_fopen = On
+          allow_url_include = Off
+          
+          ; SellYourSaas specific settings
+          auto_prepend_file = /usr/local/bin/phpsendmailprepend.php
+          
+          ; Mail settings
+          sendmail_path = "/usr/local/bin/phpsendmail.php -t -i"
+        mode: '0644'
+        backup: yes
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS EN DIRECTORIOS PHP
+    # =============================================================================
+    - name: "Detectar directorios de configuración PHP"
+      find:
+        paths: /etc/php
+        patterns: "{{ php_version }}"
+        file_type: directory
+      register: php_config_dirs
+
+    - name: "Mostrar directorios PHP encontrados"
+      debug:
+        msg: "{{ php_config_dirs.files | map(attribute='path') | list }}"
+
+    - name: "Crear enlaces simbólicos en directorios CLI"
+      file:
+        src: /etc/php/sellyoursaas.ini
+        dest: "/etc/php/{{ php_version }}/cli/conf.d/99-sellyoursaas.ini"
+        state: link
+        force: yes
+      when: php_config_dirs.files | length > 0
+
+    - name: "Crear enlaces simbólicos en directorios Apache2"
+      file:
+        src: /etc/php/sellyoursaas.ini
+        dest: "/etc/php/{{ php_version }}/apache2/conf.d/99-sellyoursaas.ini"
+        state: link
+        force: yes
+      when: php_config_dirs.files | length > 0
+
+    - name: "Crear enlaces simbólicos en directorios FPM (opcional)"
+      file:
+        src: /etc/php/sellyoursaas.ini
+        dest: "/etc/php/{{ php_version }}/fpm/conf.d/99-sellyoursaas.ini"
+        state: link
+        force: yes
+      ignore_errors: yes
+      when: php_config_dirs.files | length > 0
+
+    # =============================================================================
+    # CREAR ARCHIVOS DE LOG
+    # =============================================================================
+    - name: "Crear archivos de log PHP"
+      file:
+        path: "{{ item }}"
+        state: touch
+        owner: syslog
+        group: adm
+        mode: '0666'
+      loop:
+        - '{{ logs }}/phpmail.log'
+        - '{{ logs }}/phpsendmail.log'
+
+    - name: "Asegurar permisos de archivos de log"
+      file:
+        path: "{{ item }}"
+        owner: syslog
+        group: adm
+        mode: '0666'
+      loop:
+        - '{{ logs }}/phpmail.log'
+        - '{{ logs }}/phpsendmail.log'
+
+    # =============================================================================
+    # CREAR DIRECTORIOS PARA BLACKLIST
+    # =============================================================================
+    - name: "Crear directorio local para archivos de spam"
+      file:
+        path: "{{ documents_dir }}/sellyoursaas_local/spam"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: www-data
+        mode: '0777'
+        recurse: yes
+
+    - name: "Configurar permisos del directorio sellyoursaas_local"
+      file:
+        path: "{{ documents_dir }}/sellyoursaas_local"
+        owner: "{{ system_users.admin }}"
+        group: www-data
+        mode: '0777'
+
+    # =============================================================================
+    # COPIAR ARCHIVOS DE BLACKLIST
+    # =============================================================================
+    - name: "Verificar archivos de blacklist fuente"
+      stat:
+        path: "{{ documents_dir }}/sellyoursaas/spam/{{ item }}"
+      register: blacklist_source_check
+      loop:
+        - blacklistmail
+        - blacklistip
+        - blacklistfrom
+        - blacklistcontent
+
+    - name: "Mostrar estado de archivos blacklist fuente"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ blacklist_source_check.results }}"
+
+    - name: "Copiar archivos de blacklist a directorio local"
+      copy:
+        src: "{{ documents_dir }}/sellyoursaas/spam/{{ item.item }}"
+        dest: "{{ documents_dir }}/sellyoursaas_local/spam/{{ item.item }}"
+        remote_src: yes
+        backup: yes
+        force: no
+      loop: "{{ blacklist_source_check.results }}"
+      when: item.stat.exists
+
+    - name: "Crear archivos blacklist vacíos si no existen en fuente"
+      file:
+        path: "{{ documents_dir }}/sellyoursaas_local/spam/{{ item.item }}"
+        state: touch
+        mode: '0666'
+      loop: "{{ blacklist_source_check.results }}"
+      when: not item.stat.exists
+
+    - name: "Configurar permisos de archivos blacklist en directorio local"
+      file:
+        path: "{{ documents_dir }}/sellyoursaas_local/spam"
+        mode: '0777'
+        recurse: yes
+
+    - name: "Configurar permisos específicos de archivos blacklist"
+      shell: "chmod a+rw {{ documents_dir }}/sellyoursaas_local/spam/*"
+      ignore_errors: yes
+
+    # =============================================================================
+    # CREAR DIRECTORIO /tmp/spam Y COPIAR ARCHIVOS
+    # =============================================================================
+    - name: "Crear directorio /tmp/spam"
+      file:
+        path: /tmp/spam
+        state: directory
+        mode: '0777'
+
+    - name: "Copiar archivos blacklist a /tmp/spam"
+      copy:
+        src: "{{ documents_dir }}/sellyoursaas_local/spam/{{ item }}"
+        dest: "/tmp/spam/{{ item }}"
+        remote_src: yes
+        force: yes
+      loop:
+        - blacklistmail
+        - blacklistip
+        - blacklistfrom
+        - blacklistcontent
+      ignore_errors: yes
+
+    - name: "Configurar permisos de /tmp/spam"
+      file:
+        path: /tmp/spam
+        mode: '0777'
+
+    - name: "Configurar permisos de archivos en /tmp/spam"
+      shell: "chmod a+rw /tmp/spam/*"
+      ignore_errors: yes
+
+    - name: "Configurar propietario de archivos en /tmp/spam"
+      shell: "chown {{ system_users.admin }}:www-data /tmp/spam/*"
+      ignore_errors: yes
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar configuración PHP"
+      shell: "php -i | grep -E '(upload_max_filesize|post_max_size|memory_limit)'"
+      register: php_config_check
+      changed_when: false
+
+    - name: "Mostrar configuración PHP actual"
+      debug:
+        msg: "{{ php_config_check.stdout_lines }}"
+
+    - name: "Verificar auto_prepend_file"
+      shell: "php -i | grep auto_prepend_file"
+      register: auto_prepend_check
+      changed_when: false
+
+    - name: "Mostrar configuración auto_prepend_file"
+      debug:
+        msg: "{{ auto_prepend_check.stdout_lines }}"
+
+    - name: "Verificar sendmail_path"
+      shell: "php -i | grep sendmail_path"
+      register: sendmail_path_check
+      changed_when: false
+
+    - name: "Mostrar configuración sendmail_path"
+      debug:
+        msg: "{{ sendmail_path_check.stdout_lines }}"
+
+    - name: "Verificar archivos creados"
+      stat:
+        path: "{{ item }}"
+      register: created_files_check
+      loop:
+        - "/usr/local/bin/phpsendmailprepend.php"
+        - "/usr/local/bin/phpsendmail.php"
+        - "/etc/php/sellyoursaas.ini"
+        - "/etc/php/{{ php_version }}/cli/conf.d/99-sellyoursaas.ini"
+        - "/etc/php/{{ php_version }}/apache2/conf.d/99-sellyoursaas.ini"
+        - "'{{ logs }}/phpmail.log'"
+        - "'{{ logs }}/phpsendmail.log'"
+        - "{{ documents_dir }}/sellyoursaas_local/spam"
+        - "/tmp/spam"
+
+    - name: "Mostrar estado de archivos creados"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ created_files_check.results }}"
+
+    - name: "Verificar archivos blacklist"
+      shell: "ls -la {{ documents_dir }}/sellyoursaas_local/spam/"
+      register: blacklist_files
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar archivos blacklist locales"
+      debug:
+        msg: "{{ blacklist_files.stdout_lines | default(['Directorio vacío o no existe']) }}"
+
+    - name: "Verificar archivos en /tmp/spam"
+      shell: "ls -la /tmp/spam/"
+      register: tmp_spam_files
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar archivos en /tmp/spam"
+      debug:
+        msg: "{{ tmp_spam_files.stdout_lines | default(['Directorio vacío o no existe']) }}"
+
+    # =============================================================================
+    # REINICIAR SERVICIOS
+    # =============================================================================
+    - name: "Reiniciar Apache para aplicar configuración PHP"
+      systemd:
+        name: apache2
+        state: restarted
+      ignore_errors: yes
+
+    - name: "Verificar estado de Apache"
+      systemd:
+        name: apache2
+      register: apache_status
+
+    - name: "Mostrar estado de Apache"
+      debug:
+        msg: "Apache: {{ apache_status.status.ActiveState }}"
+
+    # =============================================================================
+    # RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de configuración PHP Setup"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN PHP SETUP COMPLETADA ==="
+          - "Versión PHP: {{ detected_php_version.stdout }}"
+          - "Enlaces duros creados: /usr/local/bin/phpsendmail*.php"
+          - "Configuración: /etc/php/sellyoursaas.ini"
+          - "Enlaces simbólicos: /etc/php/{{ php_version }}/*/conf.d/"
+          - "Logs: '{{ logs }}/phpmail.log', '{{ logs }}/phpsendmail.log'"
+          - "Blacklist local: {{ documents_dir }}/sellyoursaas_local/spam/"
+          - "Blacklist tmp: /tmp/spam/"
+          - "============================================"
+          - "COMANDOS ÚTILES:"
+          - "Ver config PHP: php -i | grep -E '(upload_max|memory_limit)'"
+          - "Ver logs: tail -f '{{ logs }}/phpmail.log'"
+          - "Probar sendmail: php -r \"mail('test@test.com','Test','Body');\""
+          - "============================================"

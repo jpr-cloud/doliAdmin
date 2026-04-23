@@ -2,3 +2,13 @@
 .DS_Store
 files/.DS_Store
 files/deploy/.DS_Store
+
+# Ignorar archivos de respaldo de Ansible
+*.retry
+*.swp
+*.bak
+*.orig
+
+# Ignorar archivos de registro
+logs/
+*.log

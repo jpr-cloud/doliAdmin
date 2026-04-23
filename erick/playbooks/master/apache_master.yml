@@ -1,0 +1,269 @@
+# =============================================================================
+# Configuración Apache en Master
+# =============================================================================
+---
+- name: "Configuración Apache Master"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Habilitar módulos de Apache"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      register: apache_module_result
+      ignore_errors: yes
+      notify: restart apache2
+
+    - name: "Habilitar configuraciones de Apache"
+      command: "a2enconf {{ item }}"
+      loop: "{{ apache_configs }}"
+      notify: restart apache2
+      changed_when: false
+
+    # ...existing code...
+    - name: "Verificar que el usuario admin existe"
+      user:
+        name: "{{ system_users.admin }}"
+        state: present
+        shell: /bin/bash
+        home: "/home/{{ system_users.admin }}"
+        create_home: yes
+
+    - name: "Verificar que el grupo admin existe"
+      group:
+        name: "{{ system_users.admin }}"
+        state: present
+
+    - name: "Agregar www-data al grupo admin"
+      user:
+        name: www-data
+        groups: "{{ system_users.admin }}"
+        append: yes
+      register: www_data_group_result
+
+    - name: "Mostrar resultado de agregar www-data al grupo"
+      debug:
+        msg: "www-data agregado al grupo {{ system_users.admin }}: {{ 'EXITOSO' if www_data_group_result.changed else 'YA ESTABA EN EL GRUPO' }}"
+
+    - name: "Verificar membresía de grupos"
+      command: "groups www-data"
+      register: www_data_groups
+      changed_when: false
+
+    - name: "Mostrar grupos de www-data"
+      debug:
+        msg: "Grupos de www-data: {{ www_data_groups.stdout }}"
+
+    - name: "Habilitar módulos de Apache"
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ apache_modules }}"
+      register: apache_module_result
+      ignore_errors: yes
+      notify: restart apache2
+
+# ...existing code...
+
+# Create the file /etc/apache2/.htpasswd with
+#    - name: 'Create the file /etc/apache2/.htpasswd with'
+#      expect:
+#        command: htpasswd -cm /etc/apache2/.htpasswd {{ system_users.admin }}
+#        responses:
+#          'New password:': '{{ system_users.admin_password }}'
+#        timeout: 30
+#      ignore_errors: yes
+    - name: "Instalar dependencias Python para htpasswd"
+      package:
+        name: 
+          - python3-passlib
+          - apache2-utils
+        state: present
+
+    - name: "Crear archivo .htpasswd para Apache"
+      htpasswd:
+        path: /etc/apache2/.htpasswd
+        name: "{{ system_users.admin }}"
+        password: "{{ system_users.admin_password }}"
+        owner: root
+        group: www-data
+        mode: 0640
+
+#    - name: "Configurar seguridad de Apache"
+#      blockinfile:
+#        path: /etc/apache2/conf-enabled/security.conf
+#        block: |
+#          # SellYourSaas Security Configuration
+#          ServerTokens Prod
+#          ServerSignature Off
+#        marker: "# {mark} ANSIBLE MANAGED SECURITY"
+#      notify: restart apache2
+
+
+
+    - name: "Configurar Virtual Host para admin.{{ domain }}"
+      blockinfile:
+        path: "/etc/apache2/sites-available/admin.{{ domain }}.conf"
+        create: yes
+        block: |
+          ##########################
+          # Admin Dolibarr Master
+          ##########################
+          #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
+          #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
+          #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f webmaster@mysaasdomainname.com"
+          php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/dolibarr/htdocs:/usr/share/GeoIP:{{ directories.jail }}::{{ directories.wwwroot }}/dolibarr_documents:{{ directories.wwwroot }}/sellyoursaas/:/home/{{ system_users.admin }}/tools/maxmind/
+          <VirtualHost *:80>
+              ServerName admin.{{ domain }}
+              DocumentRoot {{ directories.wwwroot }}/dolibarr/htdocs
+              ErrorLog     {{ directories.logs }}/admin_error_log
+              CustomLog    {{ directories.logs }}/admin_access_log combined
+
+              UseCanonicalName Off
+
+              # Not sure this can help
+              TimeOut 20
+
+              KeepAlive On
+              KeepAliveTimeout 5
+              MaxKeepAliveRequests 100
+
+              
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs>
+                  AuthType Basic
+                  AuthName "Authenticate to backoffice"
+                  AuthUserFile /etc/apache2/.htpasswd
+                  Require valid-user
+                  # Or if you prefer restrict to some ip, you can add lines "Require ip x.y.z.w" into a .conf file into this directory:
+                  IncludeOptional /etc/sellyoursaas.d/*-allowed-ip.conf
+              </Directory>
+
+              #leaving /public, /api and /dav accessible to everyone
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/custom/sellyoursaas/public/>
+                AuthType None
+                Require all granted
+                Satisfy any
+              </Directory>
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/public/>
+                AuthType None
+                Require all granted
+                Satisfy any
+              </Directory>
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/api/>
+                AuthType None
+                Require all granted
+                Satisfy any
+              </Directory>
+              <Directory {{ directories.wwwroot }}/dolibarr/htdocs/dav/>
+                AuthType None
+                Require all granted
+                Satisfy any
+              </Directory>
+              <Files ~ "(document\.php|viewimage\.php|\.js\.php|\.js|\.css\.php|\.css|\.gif|\.png|\.svg|\.woff2|favicon\.ico)$">
+                AuthType None
+                Require all granted
+                Satisfy any
+              </Files>
+
+              <Directory /home/{{ system_users.admin }}/wwwroot>
+                AllowOverride FileInfo Limit
+                Options +FollowSymLinks
+                Order allow,deny
+                Deny from env=bad_bots
+                Allow from all
+                Require all granted
+              </Directory>
+
+              # Add alias git on sellyoursaas git dir
+              Alias "/git" "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas/git"
+              <Directory {{ directories.wwwroot }}/dolibarr_documents/sellyoursaas/git>
+                AllowOverride FileInfo Limit
+                Options +Indexes
+                Order allow,deny
+                Require ip 1.2.3.4
+              </Directory>
+          
+            ExpiresActive On
+            ExpiresByType image/x-icon A2592000
+            ExpiresByType image/gif A2592000
+            ExpiresByType image/png A2592000
+            ExpiresByType image/jpeg A2592000
+            ExpiresByType text/css A2592000
+            ExpiresByType text/javascript A2592000
+            ExpiresByType application/x-javascript A2592000
+            ExpiresByType application/javascript A2592000
+
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED ADMIN VHOST"
+
+    - name: "Configurar Virtual Host para myaccount"
+      blockinfile:
+        path: "/etc/apache2/sites-available/myaccount.{{ domain }}.conf"
+        create: yes
+        block: |
+          #########################
+          # MyAccount Master
+          #########################
+          <VirtualHost *:80>
+              #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i"
+              #php_admin_value mail.force_extra_parameters "-f postmaster@mysaasdomainname.com"
+              #php_admin_value sendmail_path "/usr/sbin/sendmail -t -i -f postmaster@mysaasdomainname.com"
+              php_admin_value open_basedir /tmp/:{{ directories.wwwroot }}/:/usr/share/GeoIP:/home/admin/tools/:{{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount/:{{ directories.wwwroot }}/dolibarr_documents/:/home/{{ system_users.admin }}/tools/maxmind/
+              UseCanonicalName On
+              ServerName   myaccount.{{ domain }}
+              ErrorLog     /home/{{ system_users.admin }}/logs/myaccount_error_log
+              CustomLog    /home/{{ system_users.admin }}/logs/myaccount_access_log combined
+
+              DocumentRoot {{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount
+
+              # To access files of myaccount
+              <Directory {{ directories.wwwroot }}/dolibarr_sellyoursaas/myaccount>
+                AllowOverride FileInfo Options
+                Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+                Require all granted
+              </Directory>
+
+              # To access images
+              <Directory {{ directories.wwwroot }}/dolibarr_documents>
+                AllowOverride FileInfo Options
+                Options       -Indexes -MultiViews +FollowSymLinks -ExecCGI
+                Require all granted
+              </Directory>
+
+              AddOutputFilterByType DEFLATE text/html text/plain text/xml
+              AddDefaultCharset utf-8
+
+              #ExpiresActive On
+              #ExpiresByType image/x-icon A2592000
+              #ExpiresByType image/gif A2592000
+              #ExpiresByType image/png A2592000
+              #ExpiresByType image/jpeg A2592000
+              #ExpiresByType text/css A2592000
+              #ExpiresByType text/javascript A2592000
+              #ExpiresByType application/x-javascript A2592000
+              #ExpiresByType application/javascript A2592000
+          </VirtualHost>
+        marker: "# {mark} ANSIBLE MANAGED MYACCOUNT VHOST"
+
+    - name: "Desactivar sitio por defecto"
+      command: a2dissite 000-default
+      notify: restart apache2
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar sitios de SellYourSaas"
+      command: "a2ensite {{ item }}"
+      loop:
+        - "admin.{{ domain }}"
+        - "myaccount.{{ domain }}"
+      notify: restart apache2
+      changed_when: false
+
+  handlers:
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted

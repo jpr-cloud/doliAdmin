@@ -1,0 +1,47 @@
+# =============================================================================
+# Configuración usuario personal sysadmin (mylastnamefirstname)
+# =============================================================================
+---
+- name: "Configuración usuario personal sysadmin"
+  hosts: "{{ target_hosts | default('all') }}"
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear usuario personal sysadmin"
+      user:
+        name: "{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+        shell: /usr/bin/bash
+        create_home: yes
+        state: present
+
+    - name: "Crear archivo sudoers para usuario personal"
+      copy:
+        content: |
+          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) ALL
+          # Permite cambiar a admin o osu* sin password
+          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) /usr/bin/su - admin
+          {{ personal_sysadmin_user | default('mylastnamefirstname') }} ALL=(ALL) /usr/bin/su - osu*
+        dest: "/etc/sudoers.d/{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+        mode: '0440'
+        owner: root
+        group: root
+        validate: 'visudo -cf %s'
+
+    - name: "Generar claves SSH para usuario personal"
+      user:
+        name: "{{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+        generate_ssh_key: yes
+        ssh_key_bits: 2048
+        ssh_key_file: .ssh/id_rsa
+
+    - name: "Mostrar clave pública del usuario personal"
+      command: "cat /home/{{ personal_sysadmin_user | default('mylastnamefirstname') }}/.ssh/id_rsa.pub"
+      register: personal_pubkey
+      changed_when: false
+
+    - name: "Información del usuario personal creado"
+      debug:
+        msg:
+          - "Usuario {{ personal_sysadmin_user | default('mylastnamefirstname') }} creado exitosamente"
+          - "Clave pública: {{ personal_pubkey.stdout }}"

@@ -1,0 +1,262 @@
+# =============================================================================
+# Deletion of information files at login
+# =============================================================================
+# Este playbook elimina archivos de información del MOTD para no dar 
+# información a usuarios que se conecten por SSH
+# =============================================================================
+---
+- name: "Deletion of information files at login"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "update-motd package installation"
+      package:
+        name: update-motd
+    # =============================================================================
+    # VERIFICAR ARCHIVOS EXISTENTES apt install update-motd
+    # =============================================================================
+    - name: "Verificar archivos MOTD existentes"
+      find:
+        paths: /etc/update-motd.d/
+        patterns: "*"
+      register: existing_motd_files
+
+    - name: "Mostrar archivos MOTD encontrados"
+      debug:
+        msg:
+          - "=== ARCHIVOS MOTD ENCONTRADOS ==="
+          - "{{ existing_motd_files.files | map(attribute='path') | map('basename') | sort | list }}"
+          - "================================="
+
+    - name: "Verificar archivos específicos a eliminar"
+      stat:
+        path: "/etc/update-motd.d/{{ item }}"
+      register: motd_files_check
+      loop:
+        - "00-header"
+        - "10-help-text"
+        - "20-runabove"
+        - "50-landscape-sysinfo"
+        - "50-motd-news"
+
+    - name: "Mostrar estado de archivos específicos"
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ motd_files_check.results }}"
+
+    - name: "Verificar archivos de actualización con wildcard"
+      find:
+        paths: /etc/update-motd.d/
+        patterns:
+          - "9*-update*-available"
+          - "92-unattended-upgrades"
+        use_regex: false
+      register: update_files_check
+
+    - name: "Mostrar archivos de actualización encontrados"
+      debug:
+        msg:
+          - "=== ARCHIVOS DE ACTUALIZACIÓN ENCONTRADOS ==="
+          - "{{ update_files_check.files | map(attribute='path') | map('basename') | sort | list }}"
+          - "============================================="
+
+    # =============================================================================
+    # CREAR BACKUP DE ARCHIVOS ANTES DE ELIMINAR
+    # =============================================================================
+    - name: "Crear directorio de backup para archivos MOTD"
+      file:
+        path: /root/motd_backup
+        state: directory
+        mode: '0700'
+
+    - name: "Hacer backup de archivos MOTD específicos"
+      copy:
+        src: "/etc/update-motd.d/{{ item.item }}"
+        dest: "/root/motd_backup/{{ item.item }}.backup"
+        remote_src: yes
+        backup: yes
+      loop: "{{ motd_files_check.results }}"
+      when: item.stat.exists
+      ignore_errors: yes
+
+    - name: "Hacer backup de archivos de actualización"
+      copy:
+        src: "{{ item.path }}"
+        dest: "/root/motd_backup/{{ item.path | basename }}.backup"
+        remote_src: yes
+        backup: yes
+      loop: "{{ update_files_check.files }}"
+      ignore_errors: yes
+
+    # =============================================================================
+    # ELIMINAR ARCHIVOS ESPECÍFICOS
+    # =============================================================================
+    - name: "Eliminar archivos MOTD específicos"
+      file:
+        path: "/etc/update-motd.d/{{ item }}"
+        state: absent
+      loop:
+        - "00-header"
+        - "10-help-text"
+        - "20-runabove"
+        - "50-landscape-sysinfo"
+        - "50-motd-news"
+
+    - name: "Eliminar archivos de actualización con wildcard"
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ update_files_check.files }}"
+
+    # =============================================================================
+    # ELIMINAR ARCHIVOS ADICIONALES COMUNES
+    # =============================================================================
+    - name: "Buscar y eliminar otros archivos MOTD comunes"
+      find:
+        paths: /etc/update-motd.d/
+        patterns:
+          - "*update*available*"
+          - "*unattended*upgrade*"
+          - "*landscape*"
+          - "*runabove*"
+        use_regex: false
+      register: additional_motd_files
+
+    - name: "Eliminar archivos MOTD adicionales encontrados"
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ additional_motd_files.files }}"
+      when: additional_motd_files.files | length > 0
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar archivos MOTD restantes"
+      find:
+        paths: /etc/update-motd.d/
+        patterns: "*"
+      register: remaining_motd_files
+
+    - name: "Mostrar archivos MOTD restantes"
+      debug:
+        msg:
+          - "=== ARCHIVOS MOTD RESTANTES ==="
+          - "{{ remaining_motd_files.files | map(attribute='path') | map('basename') | sort | list }}"
+          - "==============================="
+
+    - name: "Probar generación de MOTD"
+      command: "update-motd"
+      register: motd_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultado de prueba MOTD"
+      debug:
+        msg:
+          - "=== PRUEBA MOTD ==="
+          - "Resultado: {{ 'EXITOSO' if motd_test.rc == 0 else 'CON ERRORES' }}"
+          - "{{ motd_test.stderr_lines | default(['Sin errores']) }}"
+          - "==================="
+
+    # =============================================================================
+    # CONFIGURACIONES ADICIONALES DE SEGURIDAD
+    # =============================================================================
+    - name: "Deshabilitar información del kernel en login"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PrintLastLog'
+        line: 'PrintLastLog no'
+        backup: yes
+      notify: restart ssh
+
+    - name: "Deshabilitar banner SSH"
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Banner'
+        line: '# Banner none'
+        backup: yes
+      notify: restart ssh
+
+    - name: "Crear archivo issue.net vacío"
+      copy:
+        content: ""
+        dest: /etc/issue.net
+        backup: yes
+
+    - name: "Crear archivo issue vacío"
+      copy:
+        content: ""
+        dest: /etc/issue
+        backup: yes
+
+    # =============================================================================
+    # VERIFICACIONES DE SEGURIDAD
+    # =============================================================================
+    - name: "Verificar configuración SSH"
+      shell: "grep -E '(PrintLastLog|Banner)' /etc/ssh/sshd_config"
+      register: ssh_security_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar configuración de seguridad SSH"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN SSH ==="
+          - "{{ ssh_security_check.stdout_lines | default(['No hay configuraciones específicas']) }}"
+          - "========================="
+
+    - name: "Verificar archivos issue"
+      shell: "ls -la /etc/issue*"
+      register: issue_files_check
+      changed_when: false
+
+    - name: "Mostrar estado de archivos issue"
+      debug:
+        msg:
+          - "=== ARCHIVOS ISSUE ==="
+          - "{{ issue_files_check.stdout_lines }}"
+          - "======================"
+
+    # =============================================================================
+    # MOSTRAR RESUMEN
+    # =============================================================================
+    - name: "Mostrar resumen de eliminación de archivos MOTD"
+      debug:
+        msg:
+          - "=== ELIMINACIÓN ARCHIVOS MOTD COMPLETADA ==="
+          - "Archivos eliminados:"
+          - "  - 00-header"
+          - "  - 20-runabove" 
+          - "  - 50-landscape-sysinfo"
+          - "  - 50-motd-news"
+          - "  - 9*-update*-available"
+          - "  - 92-unattended-upgrades"
+          - ""
+          - "Configuraciones adicionales:"
+          - "  - PrintLastLog deshabilitado"
+          - "  - Banner SSH deshabilitado"
+          - "  - Archivos issue vaciados"
+          - ""
+          - "Backup en: /root/motd_backup/"
+          - "=========================================="
+
+    - name: "Mostrar comandos útiles"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Ver MOTD actual: cat /etc/motd"
+          - "Generar MOTD: update-motd"
+          - "Ver archivos MOTD: ls -la /etc/update-motd.d/"
+          - "Ver backup: ls -la /root/motd_backup/"
+          - "Ver config SSH: grep -E '(PrintLastLog|Banner)' /etc/ssh/sshd_config"
+          - "Probar SSH: ssh localhost"
+          - "======================"
+
+  handlers:
+    - name: restart ssh
+      systemd:
+        name: ssh
+        state: restarted

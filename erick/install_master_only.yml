@@ -1,0 +1,307 @@
+# =============================================================================
+# INSTALACIÓN SOLO SERVIDOR MASTER
+# =============================================================================
+# Este playbook instala únicamente el servidor master de SellYourSaas
+# =============================================================================
+---
+- name: "=== INSTALACIÓN SOLO MASTER SERVER ==="
+  hosts: master
+  gather_facts: yes
+  tasks:
+
+
+# =============================================================================
+# CONFIGURACIÓN DE HOSTNAME MASTER
+# =============================================================================
+- name: "Configuración de hostname Master"
+  hosts: master
+  become: true
+  tasks:
+    - name: "Configurar hostname del servidor Master"
+      include_tasks: playbooks/shared/sethostname_tasks.yml
+      vars:
+        target: "{{ target }}"
+
+# =============================================================================
+# CONFIGURACIÓN BÁSICA MASTER
+# =============================================================================
+- name: "FASE 1: Instalación de paquetes comunes en Master"
+  import_playbook: playbooks/shared/common_packages.yml
+  vars:
+    target: master
+
+# =============================================================================
+# 'Unix personal sysadmin account': Creación del usuario Unix Personal Sysadmin 
+# =============================================================================
+- name: "Creación del usuario Unix Personal Sysadmin"
+  import_playbook: playbooks/shared/UnixPersonalSysadminAccount.yml
+  vars:
+    target: master
+
+# =============================================================================
+# 'Unix admin account':Creación del usuario admin y directorios de trabajo
+# Esta tarea solo es para deployment, se comenta por
+# =============================================================================
+- name: "Creación del usuario admin y directorios de trabajo"
+  import_playbook: playbooks/shared/UnixAdminAccount.yml
+  vars:
+    target: master
+
+# =============================================================================
+# 'SSH setup' Solo para deployment, no para master
+# =============================================================================
+#- name: "SSH setup"
+#  import_playbook: playbooks/master/ssh.yml
+#  vars:
+#    target: master
+
+
+# =============================================================================
+# Creation of working directories
+# =============================================================================
+- name: Creación de los directorios de trabajo
+  import_playbook: playbooks/shared/working_directories.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Getting files of Dolibarr and SellYourSaas application
+# =============================================================================
+- name: "[Getting files of Dolibarr and SellYourSaas application]: Instalación Dolibarr en Master"
+  import_playbook: playbooks/shared/getDolibarr.yml
+  vars:
+    target: master
+# =============================================================================
+# Creation of /.conf with credentials
+# =============================================================================
+
+- name: "FASE 2.1: Creación de /conf con credenciales"
+  import_playbook: playbooks/shared/confWithCredentials.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Installing the nfs share
+# =============================================================================
+
+- name: "FASE 2.2: Configuración NFS Server en Master"
+  import_playbook: playbooks/master/nfs_master.yml
+  vars:
+    target: master
+    internal_dest_ip: "{{ deployment_server.ip_internal }}"
+
+# =============================================================================
+# [FALTA] Deploy the public key of master admin on deployment admin account
+# =============================================================================
+
+# =============================================================================
+# Installation of packages
+#.  Apache web server configuration
+# =============================================================================
+
+- name: "FASE 2.3: Configuración PHP en Master"
+  import_playbook: playbooks/shared/php_config.yml
+  vars:
+    target: master
+
+# TODO: Configuración de PHP-FPM y ajustes específicos
+- name: "FASE 2.4: Configuración Apache en Master"
+  import_playbook: playbooks/master/apache_master.yml
+  vars:
+    target: master
+
+- name: "AFICK"
+  import_playbook: playbooks/shared/afick.yml
+  vars:
+    target: master
+  tags: ['afick']
+
+# TODO: Configuración de Fail2ban
+- name: "[Installation of fail2ban]: Configuración Fail2ban en Master"
+  import_playbook: playbooks/master/fail2ban_master.yml
+  vars:
+    target: master
+
+# TODO: Configuración de Mariadb
+#- name: "FASE 2.5: Configuración MariaDB en Master"
+#  import_playbook: playbooks/master/mariadb_master.yml
+#  vars:
+#    target: master
+
+
+
+#- name: "FASE 2.7: Configuración SSL/Certbot en Master"
+#  import_playbook: playbooks/master/certbot_master.yml
+#  vars:
+#    target: master
+
+# =============================================================================
+# Setup PHP
+# =============================================================================
+- name: "[Setup PHP]: Configuración PHP en Master"
+  import_playbook: playbooks/shared/SetupPHP.yml
+  vars:
+    target: master
+
+# =============================================================================
+# Setup of logrotate
+# =============================================================================
+- name: "[Setup of logrotate]: Configuración Logrotate en Master"
+  import_playbook: playbooks/shared/logrotate.yml
+  vars:
+    host: master
+
+# =============================================================================
+# Setup of journalctl
+# =============================================================================
+- name: "[Setup of journalctl]: Optimización CPU y logs"
+  import_playbook: playbooks/shared/cpulimit_journalctl.yml
+  vars:
+    target: master
+
+# =============================================================================
+# Installation of Cron tasks
+# =============================================================================
+- name: "[Installation of Cron tasks]: Configuración Cron en Master"
+  import_playbook: playbooks/shared/cron.yml
+  vars:
+    target: master
+    scope: master
+
+# =============================================================================
+# Installation of Dolibarr framework
+# =============================================================================
+- name: "[Installation of Dolibarr framework]: Instalación de Dolibarr en Master"
+  import_playbook: playbooks/shared/dolibarrInstall.yml
+  vars:
+    target: master
+    scope: master
+
+#- name: "FASE 2.11: Configuración alias básicos en Master"
+#  import_playbook: playbooks/master/master_alias.yml
+
+
+
+#- name: "FASE 2.13: Configuración Watchdog en Master"
+#  import_playbook: playbooks/master/watchdog_master.yml
+
+# =============================================================================
+# VERIFICACIÓN MASTER
+# =============================================================================
+- name: "FASE 3: Verificación instalación Master"
+  hosts: master
+  become: true
+  gather_facts: yes
+  tasks:
+    - name: "Verificar servicios críticos en Master"
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - apache2
+        - mariadb
+        - fail2ban
+        - nfs-kernel-server
+
+    - name: "Verificar acceso a directorios críticos"
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ directories.wwwroot }}"
+        - "{{ directories.backups }}"
+        - "{{ directories.scripts }}"
+      check_mode: yes
+
+    - name: "Mostrar resumen de instalación Master"
+      debug:
+        msg:
+          - "=========================================="
+          - "INSTALACIÓN MASTER COMPLETADA"
+          - "Servidor: {{ inventory_hostname }}"
+          - "IP: {{ ansible_host }}"
+          - "Hostname: {{ ansible_hostname }}"
+          - "=========================================="
+
+# =============================================================================
+# CONFIGURACIONES ADICIONALES COMPLETENESS
+# =============================================================================
+- name: "FASE 14: Políticas de contraseñas"
+  import_playbook: playbooks/shared/min_password.yml
+  vars:
+    ansible_limit: master
+
+- name: "FASE 15: Configuración antivirus y spam"
+  import_playbook: playbooks/shared/spam_clam_config.yml
+  vars:
+    ansible_limit: master
+
+
+#- name: "FASE 17: Virtual hosts del Master"
+#  import_playbook: playbooks/master/vhosts_master.yml
+
+#- name: "FASE 18: Configuración Geoip2"
+#  import_playbook: playbooks/master/geoip2_master.yml
+
+#- name: "FASE 19: Usuario personal sysadmin"
+#  import_playbook: playbooks/shared/personal_sysadmin.yml
+#  vars:
+#    ansible_limit: master
+#
+- name: "monitoreo"
+  import_playbook: playbooks/shared/monitor_basic.yml
+  vars:
+    target: master
+  tags: ['monitor']
+
+- name: geoip
+  import_playbook: playbooks/shared/geoip.yml
+  vars:
+    target: master
+  tags: ['geoip']
+
+#- name: "FASE 21: SSL wildcard personalizado"
+#  import_playbook: playbooks/shared/ssl_wildcard.yml
+#  vars:
+#    ansible_limit: master
+
+# =============================================================================
+# INFORMACIÓN FINAL MASTER
+# =============================================================================
+#- name: "FASE 4: Información final Master"
+#  hosts: localhost
+#  gather_facts: no
+#  tasks:
+#    - name: "Mostrar información de acceso Master"
+#      debug:
+#        msg:
+#          - "================================================================"
+#          - "    INSTALACIÓN SERVIDOR MASTER COMPLETADA - 100% COMPLIANCE"
+#          - "================================================================"
+#          - ""
+#          - "🔧 ACCESOS MASTER:"
+#          - "   • Admin Panel: https://admin.{{ master_server.domain }}"
+#          - "   • Customer Portal: https://myaccount.{{ master_server.domain }}"
+#          - "   • SSH: ssh {{ system_users.app_admin }}@{{ master_server.ip }} -p {{ ssh_config.port }}"
+#          - "   • Monitor básico: ejecutar 'basic' en consola"
+#          - ""
+#          - "📊 SERVICIOS MASTER ACTIVOS:"
+#          - "   • Base de datos: {{ database.main_db }} en {{ master_server.ip }}"
+#          - "   • Apache con SSL wildcard automático"
+#          - "   • NFS Server para backups compartidos"
+#          - "   • Monitoreo y backups automáticos"
+#          - "   • Fail2ban + políticas contraseñas + antivirus"
+#          - "   • Geoip2 + optimizaciones CPU/logs"
+#          - ""
+#          - "🚀 PRÓXIMOS PASOS:"
+#          - "   1. Acceder al panel de administración"
+#          - "   2. Completar configuración inicial de SellYourSaas"
+#          - "   3. Instalar servidor de deployment cuando esté listo"
+#          - "   4. Configurar certificados SSL definitivos"
+#          - ""
+#          - "📧 NOTIFICACIONES: {{ notifications.email }}"
+#          - "👤 SYSADMIN PERSONAL: {{ personal_sysadmin_user | default('mylastnamefirstname') }}"
+#          - "================================================================"

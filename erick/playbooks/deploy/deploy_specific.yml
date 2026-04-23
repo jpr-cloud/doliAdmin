@@ -1,0 +1,66 @@
+# =============================================================================
+# Configuraciones específicas adicionales para Deploy
+# =============================================================================
+---
+- name: "Configuraciones específicas de Deploy"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear directorio para virtual hosts de instancias"
+      file:
+        path: /etc/apache2/sellyoursaas-enabled
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Configurar limits.conf para instancias"
+      blockinfile:
+        path: /etc/security/limits.conf
+        block: |
+          # SellYourSaas limits for user instances
+          *               soft    nproc           1000
+          *               hard    nproc           2000
+          *               soft    nofile          4096
+          *               hard    nofile          8192
+          # Limits for large UID ranges
+          65535:500000    soft    fsize           1000000
+          65535:500000    hard    fsize           1000000
+          65535:500000    hard    nproc           50
+          65535:500000    hard    maxlogins       10
+          65535:500000    hard    cpu             5000
+        marker: "# {mark} ANSIBLE MANAGED SELLYOURSAAS LIMITS"
+
+    - name: "Configurar MySQL service para deployment"
+      blockinfile:
+        path: /etc/mysql/mariadb.conf.d/50-server.cnf
+        block: |
+          # SellYourSaas deployment specific settings
+          max_connections = 200
+          connect_timeout = 10
+          wait_timeout = 600
+          max_allowed_packet = 16M
+          thread_cache_size = 128
+          sort_buffer_size = 4M
+          bulk_insert_buffer_size = 16M
+          tmp_table_size = 32M
+          max_heap_table_size = 32M
+        marker: "# {mark} ANSIBLE MANAGED DEPLOYMENT MYSQL"
+      notify: restart mysql
+
+    - name: "Crear certificado wildcard placeholder"
+      copy:
+        content: |
+          # Placeholder for wildcard SSL certificate
+          # This should be replaced with actual Let's Encrypt wildcard cert
+          # *.{{ deployment_server.domain }}
+        dest: "/etc/ssl/certs/wildcard.{{ deployment_server.domain }}.placeholder"
+        mode: '0644'
+
+  handlers:
+    - name: restart mysql
+      systemd:
+        name: mysql
+        state: restarted

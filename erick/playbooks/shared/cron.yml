@@ -1,0 +1,78 @@
+# =============================================================================
+# Configuración de Cron Jobs
+# =============================================================================
+---
+- name: "Configuración de Cron Jobs para Master y Deployment"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Verificar variables requeridas"
+      assert:
+        that:
+          - scope is defined
+          - cron_jobs is defined
+          - system_users.admin is defined
+        fail_msg: "Faltan variables requeridas: scope, cron_jobs o system_users.admin"
+        success_msg: "Variables de cron verificadas correctamente"
+
+    - name: "Configurar cron jobs para Master root || admin"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: root
+        state: present
+      loop: "{{ cron_jobs.master | default([]) }}"
+      when: scope == "master" or scope == "deployment"
+
+    - name: "Configurar cron jobs para Master {{ system_users.admin }}"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: "{{ system_users.admin }}"
+        state: present
+      loop: "{{ cron_jobs.master_as_admin | default([]) }}"
+      when: scope == "master"
+
+    - name: "Cron backup cleanup (master y deployment)"
+      cron:
+        name: "batch_customers backupdelete"
+        minute: "5"
+        hour: "0"
+        job: "/home/{{ system_users.admin }}/wwwroot/dolibarr/htdocs/custom/sellyoursaas/scripts/batch_customers.php backupdelete >> /home/{{ system_users.admin }}/logs/batch_customers-backup.log 2>&1"
+        user: "{{ system_users.admin }}"
+        state: present
+      when: scope == "master" or scope == "deployment"
+
+    - name: "Configurar cron jobs para Deployment"
+      cron:
+        name: "{{ item.name }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day | default('*') }}"
+        month: "{{ item.month | default('*') }}"
+        weekday: "{{ item.weekday | default('*') }}"
+        job: "{{ item.job }}"
+        user: "{{ system_users.admin }}"
+        state: present
+      loop: "{{ cron_jobs.deployment | default([]) }}"
+      when: scope == "deployment"
+
+    - name: "Mostrar cron jobs configurados"
+      debug:
+        msg: |
+          Cron jobs configurados para {{ scope }}:
+          - Master jobs: {{ cron_jobs.master | default([]) | length }}
+          - Master admin jobs: {{ cron_jobs.master_as_admin | default([]) | length if scope == 'master' else 0 }}
+          - Deployment jobs: {{ cron_jobs.deployment | default([]) | length if scope == 'deployment' else 0 }}

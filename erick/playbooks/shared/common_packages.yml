@@ -1,0 +1,307 @@
+# =============================================================================
+# Instalación de Paquetes Comunes para Master y Deployment
+# =============================================================================
+---
+- name: "Instalación de paquetes del sistema"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIONES PREVIAS Y LIMPIEZA
+    # =============================================================================
+    - name: "Verificar procesos dpkg/apt activos"
+      shell: "ps aux | grep -E '(dpkg|apt|unattended-upgrade)' | grep -v grep || echo 'No hay procesos activos'"
+      register: package_processes
+      changed_when: false
+
+    - name: "Mostrar procesos de paquetes activos"
+      debug:
+        msg: "{{ package_processes.stdout_lines }}"
+
+    - name: "Esperar a que terminen procesos de paquetes existentes"
+      shell: "while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done"
+      timeout: 300
+      ignore_errors: yes
+
+    - name: "Verificar y limpiar locks de dpkg/apt"
+      shell: |
+        # Verificar si hay locks activos
+        if fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; then
+          echo "Hay procesos usando los locks, esperando..."
+          sleep 10
+        fi
+        
+        # Limpiar locks huérfanos si es necesario
+        if [ ! -f /proc/$(cat /var/lib/dpkg/lock-frontend 2>/dev/null) 2>/dev/null ]; then
+          rm -f /var/lib/dpkg/lock-frontend
+        fi
+        
+        if [ ! -f /proc/$(cat /var/lib/apt/lists/lock 2>/dev/null) 2>/dev/null ]; then
+          rm -f /var/lib/apt/lists/lock
+        fi
+        
+        echo "Locks verificados"
+      register: lock_cleanup
+      ignore_errors: yes
+
+    - name: "Configurar debconf para modo no interactivo"
+      shell: |
+        export DEBIAN_FRONTEND=noninteractive
+        echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+      changed_when: false
+
+    - name: "Detener servicios de actualización automática"
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      loop:
+        - unattended-upgrades
+        - apt-daily
+        - apt-daily-upgrade
+      ignore_errors: yes
+
+    - name: "Verificar variables de paquetes requeridas"
+      assert:
+        that:
+          - packages_basic is defined
+          - packages_database is defined
+          - packages_web is defined
+          - packages_php is defined
+          - packages_security is defined
+          - packages_additional is defined
+        fail_msg: "Faltan variables de paquetes en group_vars/all.yml"
+        success_msg: "Variables de paquetes verificadas correctamente"
+
+    # =============================================================================
+    # CONFIGURACIÓN INICIAL DE APT
+    # =============================================================================
+    - name: "Configurar opciones dpkg para evitar prompts"
+      copy:
+        dest: /etc/apt/apt.conf.d/99ansible
+        content: |
+          Dpkg::Options {
+            "--force-confdef";
+            "--force-confold";
+          }
+          APT::Get::Assume-Yes "true";
+          APT::Get::Fix-Broken "true";
+        backup: yes
+
+    - name: "Actualizar cache de paquetes con reintentos"
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        force_apt_get: yes
+      register: apt_update_result
+      ##retries: 3
+      #delay: 10
+      until: apt_update_result is succeeded
+
+    - name: "Configurar dpkg para reparar instalaciones interrumpidas"
+      shell: "dpkg --configure -a"
+      register: dpkg_configure
+      ignore_errors: yes
+
+    - name: "Reparar paquetes rotos si es necesario"
+      apt:
+        state: fixed
+        force_apt_get: yes
+      when: dpkg_configure.rc != 0
+
+    # =============================================================================
+    # INSTALACIÓN DE PAQUETES POR GRUPOS
+    # =============================================================================
+    - name: "Instalar paquetes básicos"
+      apt:
+        name: "{{ packages_basic }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: basic_packages_output
+      ##retries: 3
+      ##delay: 30
+      until: basic_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "Mostrar paquetes básicos instalados"
+      debug:
+        msg: "Paquetes básicos: instalación {{ 'exitosa' if basic_packages_output.changed else 'sin cambios' }}"
+
+    - name: "Configurar paquetes básicos que quedaron pendientes"
+      shell: "dpkg --configure -a"
+      register: basic_configure
+      ignore_errors: yes
+
+    - name: "Instalar paquetes de base de datos"
+      apt:
+        name: "{{ packages_database }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: database_packages_output
+      ##retries: 3
+      ##delay: 30
+      until: database_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "Mostrar paquetes de base de datos instalados"
+      debug:
+        msg: "Paquetes de BD: instalación {{ 'exitosa' if database_packages_output.changed else 'sin cambios' }}"
+
+    - name: "Instalar paquetes web"
+      apt:
+        name: "{{ packages_web }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: web_packages_output
+      #retries: 3
+      #delay: 30
+      until: web_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "Instalar paquetes PHP"
+      apt:
+        name: "{{ packages_php }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: php_packages_output
+      ##retries: 3
+      ##delay: 30
+      until: php_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "Instalar paquetes de seguridad"
+      apt:
+        name: "{{ packages_security }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: security_packages_output
+      #retries: 3
+      #delay: 30
+      until: security_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: "Instalar paquetes adicionales"
+      apt:
+        name: "{{ packages_additional }}"
+        state: present
+        force_apt_get: yes
+        install_recommends: no
+        dpkg_options: 'force-confdef,force-confold'
+      register: additional_packages_output
+      #retries: 3
+      #delay: 30
+      until: additional_packages_output is succeeded
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    # =============================================================================
+    # CONFIGURACIÓN FINAL Y REPARACIONES
+    # =============================================================================
+    - name: "Configurar paquetes pendientes"
+      shell: "dpkg --configure -a"
+      register: final_configure
+      ignore_errors: yes
+
+    - name: "Reparar dependencias finales"
+      apt:
+        state: fixed
+        force_apt_get: yes
+      ignore_errors: yes
+
+    - name: "Limpiar cache de apt"
+      apt:
+        autoclean: yes
+        autoremove: yes
+
+    # =============================================================================
+    # VERIFICACIONES Y RESUMEN
+    # =============================================================================
+    - name: "Mostrar resumen de instalación de paquetes"
+      debug:
+        msg:
+          - "=== RESUMEN DE INSTALACIÓN DE PAQUETES ==="
+          - "Paquetes básicos: {{ 'instalados' if basic_packages_output.changed else 'sin cambios' }}"
+          - "Paquetes BD: {{ 'instalados' if database_packages_output.changed else 'sin cambios' }}"
+          - "Paquetes web: {{ 'instalados' if web_packages_output.changed else 'sin cambios' }}"
+          - "Paquetes PHP: {{ 'instalados' if php_packages_output.changed else 'sin cambios' }}"
+          - "Paquetes seguridad: {{ 'instalados' if security_packages_output.changed else 'sin cambios' }}"
+          - "Paquetes adicionales: {{ 'instalados' if additional_packages_output.changed else 'sin cambios' }}"
+          - "=========================================="
+
+    - name: "Verificar estado de paquetes clave"
+      shell: "dpkg -l {{ item }} 2>/dev/null | grep '^ii' || echo 'NO INSTALADO'"
+      register: package_check
+      changed_when: false
+      loop:
+        - apache2
+        - php
+        - mariadb-server
+        - fail2ban
+        - zip
+        - unzip
+
+    - name: "Mostrar estado de paquetes clave"
+      debug:
+        msg: "{{ item.item }}: {{ 'INSTALADO' if 'NO INSTALADO' not in item.stdout else 'NO INSTALADO' }}"
+      loop: "{{ package_check.results }}"
+
+    - name: "Verificar versión de PHP instalada"
+      shell: "php --version 2>/dev/null | head -1 || echo 'PHP no disponible'"
+      register: php_version_output
+      changed_when: false
+
+    - name: "Mostrar versión de PHP"
+      debug:
+        msg: "Versión de PHP: {{ php_version_output.stdout }}"
+
+    # =============================================================================
+    # CONFIGURACIONES ADICIONALES
+    # =============================================================================
+    - name: "Configurar timezone"
+      timezone:
+        name: America/Mexico_City
+
+    - name: "Establecer shell por defecto a bash"
+      file:
+        src: /bin/bash
+        dest: /usr/bin/sh
+        state: link
+        force: yes
+
+    - name: "Verificar que no hay paquetes en estado inconsistente"
+      shell: "dpkg -l | grep -E '^.[^i]' | wc -l"
+      register: broken_packages_count
+      changed_when: false
+
+    - name: "Mostrar estado final del sistema de paquetes"
+      debug:
+        msg:
+          - "=== ESTADO FINAL ==="
+          - "Paquetes en estado inconsistente: {{ broken_packages_count.stdout }}"
+          - "Configuración final: {{ 'EXITOSA' if final_configure.rc == 0 else 'CON ADVERTENCIAS' }}"
+          - "==================="
+
+    # =============================================================================
+    # LIMPIAR ARCHIVOS TEMPORALES
+    # =============================================================================
+    - name: "Limpiar configuración temporal de apt"
+      file:
+        path: /etc/apt/apt.conf.d/99ansible
+        state: absent

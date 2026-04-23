@@ -1,0 +1,528 @@
+# =============================================================================
+# Configuración de UFW para prevenir escaneos salientes + NFS
+# =============================================================================
+---
+- name: "Configurar UFW anti-escaneo con soporte NFS"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  vars:
+    playbook_scope: '{{ scope | default("master") }}'
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIONES PREVIAS
+    # =============================================================================
+    - name: "Verificar variables de red requeridas"
+      assert:
+        that:
+          - networking is defined
+          - networking.address is defined
+          - networking.mask is defined
+        fail_msg: "Faltan variables de networking en group_vars/all.yml"
+        success_msg: "Variables de networking verificadas correctamente"
+
+    - name: "Mostrar configuración de red"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DE RED ==="
+          - "Dirección: {{ networking.address }}"
+          - "Máscara: {{ networking.mask }}"
+          - "Red completa: {{ networking.address }}{{ networking.mask }}"
+          - "Servidor: {{ inventory_hostname }}"
+          - "Scope: {{ playbook_scope }}"
+          - "============================"
+
+    - name: "Verificar estado actual de UFW"
+      shell: "ufw status verbose"
+      register: ufw_current_status
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar estado actual de UFW"
+      debug:
+        msg: "{{ ufw_current_status.stdout_lines | default(['UFW no disponible']) }}"
+
+    # =============================================================================
+    # INSTALACIÓN Y CONFIGURACIÓN INICIAL
+    # =============================================================================
+    - name: "Configurar UFW para no pedir confirmación"
+      lineinfile:
+        path: /etc/ufw/ufw.conf
+        regexp: '^ENABLED='
+        line: 'ENABLED=yes'
+        backup: yes
+
+    - name: "Activar UFW"
+      ufw:
+        state: enabled
+    - name: "Instalar UFW si no está presente"
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+
+    - name: "Detener UFW antes de reset"
+      ufw:
+        state: disabled
+      ignore_errors: yes
+
+    - name: "Reset completo de UFW"
+      ufw:
+        state: reset
+      ignore_errors: yes
+
+    # =============================================================================
+    # POLÍTICAS POR DEFECTO
+    # =============================================================================
+    - name: "Configurar políticas por defecto"
+      ufw:
+        policy: "{{ item.policy }}"
+        direction: "{{ item.direction }}"
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'deny' }
+        - { direction: 'routed', policy: 'deny' }
+
+    - name: "Mostrar políticas configuradas"
+      debug:
+        msg:
+          - "=== POLÍTICAS POR DEFECTO ==="
+          - "Incoming: DENY"
+          - "Outgoing: DENY"
+          - "Routed (Forward): DENY"
+          - "============================="
+
+    # =============================================================================
+    # CONEXIONES ENTRANTES PERMITIDAS
+    # =============================================================================
+    - name: "Permitir SSH entrante"
+      ufw:
+        rule: allow
+        direction: in
+        port: ssh
+        comment: "SSH access"
+
+    - name: "Permitir HTTP entrante"
+      ufw:
+        rule: allow
+        direction: in
+        port: '80'
+        proto: tcp
+        comment: "HTTP web traffic"
+
+    - name: "Permitir HTTPS entrante"
+      ufw:
+        rule: allow
+        direction: in
+        port: '443'
+        proto: tcp
+        comment: "HTTPS web traffic"
+
+    # =============================================================================
+    # CONEXIONES ENTRANTES RESTRINGIDAS A RED INTERNA
+    # =============================================================================
+    - name: "Permitir puerto 8080 solo desde red interna"
+      ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: '8080'
+        comment: "Internal network access to 8080"
+
+    # =============================================================================
+    # CONFIGURACIÓN NFS PARA SERVIDOR MASTER
+    # =============================================================================
+    - name: "Permitir tráfico NFS desde red interna (Master Server)"
+      ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: "{{ item }}"
+        proto: tcp
+        comment: "NFS Server - {{ item }}"
+      loop:
+        - "111"      # Portmapper
+        - "2049"     # NFS principal
+        - "20048"    # mountd
+      when: playbook_scope == 'master'
+
+    - name: "Permitir tráfico NFS UDP desde red interna (Master Server)"
+      ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: "{{ item }}"
+        proto: udp
+        comment: "NFS Server UDP - {{ item }}"
+      loop:
+        - "111"      # Portmapper UDP
+        - "2049"     # NFS UDP
+      when: playbook_scope == 'master'
+
+    - name: "Permitir puertos adicionales NFS (Master Server)"
+      ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: "{{ item }}"
+        comment: "NFS Additional - {{ item }}"
+      loop:
+        - "32765"    # lockd
+        - "32767"    # nlockmgr
+      when: playbook_scope == 'master'
+
+    - name: "Mostrar configuración NFS para Master"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN NFS MASTER ==="
+          - "Portmapper (111): TCP/UDP - Red interna"
+          - "NFS Principal (2049): TCP/UDP - Red interna"
+          - "Mount Daemon (20048): TCP - Red interna"
+          - "Lock Manager (32765, 32767): TCP - Red interna"
+          - "==============================="
+      when: playbook_scope == 'master'
+
+    # =============================================================================
+    # CONEXIONES SALIENTES PARA NFS CLIENT (DEPLOY)
+    # =============================================================================
+    - name: "Permitir conexiones NFS salientes (Deploy Client)"
+      ufw:
+        rule: allow
+        direction: out
+        to_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: "{{ item }}"
+        proto: tcp
+        comment: "NFS Client - {{ item }}"
+      loop:
+        - "111"      # Portmapper
+        - "2049"     # NFS principal
+        - "20048"    # mountd
+      when: playbook_scope == 'deploy'
+
+    - name: "Permitir conexiones NFS UDP salientes (Deploy Client)"
+      ufw:
+        rule: allow
+        direction: out
+        to_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: "{{ item }}"
+        proto: udp
+        comment: "NFS Client UDP - {{ item }}"
+      loop:
+        - "111"      # Portmapper UDP
+        - "2049"     # NFS UDP
+      when: playbook_scope == 'deploy'
+
+    - name: "Mostrar configuración NFS para Deploy"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN NFS DEPLOY ==="
+          - "Conexiones salientes a red interna:"
+          - "Portmapper (111): TCP/UDP"
+          - "NFS Principal (2049): TCP/UDP"
+          - "Mount Daemon (20048): TCP"
+          - "==============================="
+      when: playbook_scope == 'deploy'
+
+    - name: "Mostrar reglas entrantes configuradas"
+      debug:
+        msg:
+          - "=== CONEXIONES ENTRANTES PERMITIDAS ==="
+          - "SSH (22): Desde cualquier IP"
+          - "HTTP (80): Desde cualquier IP"
+          - "HTTPS (443): Desde cualquier IP"
+          - "Puerto 8080: Solo desde {{ networking.address }}{{ networking.mask }}"
+          - "{{ 'NFS Server (111, 2049, 20048): Solo red interna' if playbook_scope == 'master' else 'NFS Server: NO (Deploy client)' }}"
+          - "======================================="
+
+    # =============================================================================
+    # CONEXIONES SALIENTES NECESARIAS
+    # =============================================================================
+    - name: "Permitir DNS saliente"
+      ufw:
+        rule: allow
+        direction: out
+        port: '53'
+        comment: "DNS queries"
+
+    - name: "Permitir HTTP saliente"
+      ufw:
+        rule: allow
+        direction: out
+        port: '80'
+        proto: tcp
+        comment: "HTTP updates"
+
+    - name: "Permitir HTTPS saliente"
+      ufw:
+        rule: allow
+        direction: out
+        port: '443'
+        proto: tcp
+        comment: "HTTPS updates"
+
+    - name: "Permitir NTP saliente"
+      ufw:
+        rule: allow
+        direction: out
+        port: '123'
+        proto: udp
+        comment: "NTP time sync"
+
+    # =============================================================================
+    # CONFIGURACIÓN SSH SALIENTE RESTRICTIVA
+    # =============================================================================
+    - name: "Permitir SSH saliente solo hacia red interna"
+      ufw:
+        rule: allow
+        direction: out
+        to_ip: "{{ networking.address }}{{ networking.mask }}"
+        port: '22'
+        comment: "SSH to internal network only"
+
+    - name: "Bloquear SSH saliente hacia internet público"
+      ufw:
+        rule: deny
+        direction: out
+        port: '22'
+        comment: "Block SSH to public internet"
+
+    - name: "Mostrar reglas salientes configuradas"
+      debug:
+        msg:
+          - "=== CONEXIONES SALIENTES PERMITIDAS ==="
+          - "DNS (53): Hacia cualquier destino"
+          - "HTTP (80): Hacia cualquier destino"
+          - "HTTPS (443): Hacia cualquier destino"
+          - "NTP (123/UDP): Hacia cualquier destino"
+          - "SSH (22): Solo hacia {{ networking.address }}{{ networking.mask }}"
+          - "{{ 'NFS Client (111, 2049): Solo hacia red interna' if playbook_scope == 'deploy' else 'NFS Client: NO (Master server)' }}"
+          - "SSH hacia internet público: BLOQUEADO"
+          - "======================================"
+
+    # =============================================================================
+    # RATE LIMITING Y CONFIGURACIONES AVANZADAS
+    # =============================================================================
+    - name: "Aplicar rate limiting a SSH"
+      shell: "ufw limit ssh"
+      register: ssh_limit_result
+      changed_when: "'Rules updated' in ssh_limit_result.stdout"
+
+    - name: "Mostrar configuración de rate limiting"
+      debug:
+        msg:
+          - "=== RATE LIMITING ==="
+          - "SSH: Máximo 6 conexiones en 30 segundos"
+          - "Protección contra ataques de fuerza bruta activada"
+          - "===================="
+
+    # =============================================================================
+    # CONFIGURACIÓN DE LOGGING
+    # =============================================================================
+    - name: "Habilitar logging de UFW"
+      ufw:
+        logging: 'on'
+
+    - name: "Configurar nivel de logging detallado"
+      shell: "ufw logging medium"
+      register: logging_config
+      changed_when: "'Logging enabled' in logging_config.stdout"
+
+    # =============================================================================
+    # ACTIVACIÓN Y VERIFICACIÓN
+    # =============================================================================
+    - name: "Activar UFW (método directo)"
+      command: ufw --force enable
+      register: ufw_enable_result
+      changed_when: "'Firewall is active' in ufw_enable_result.stdout"
+
+    - name: "Verificar estado final de UFW"
+      shell: "ufw status verbose"
+      register: ufw_final_status
+      changed_when: false
+
+    - name: "Mostrar estado final de UFW"
+      debug:
+        msg: "{{ ufw_final_status.stdout_lines }}"
+
+    # =============================================================================
+    # PRUEBAS DE CONECTIVIDAD
+    # =============================================================================
+    - name: "Probar conectividad básica"
+      shell: |
+        echo "=== PRUEBAS DE CONECTIVIDAD ==="
+        
+        # Probar DNS
+        echo -n "DNS: "
+        nslookup google.com >/dev/null 2>&1 && echo "✓ OK" || echo "✗ BLOCKED"
+        
+        # Probar HTTP
+        echo -n "HTTP: "
+        curl -s --connect-timeout 5 http://google.com >/dev/null 2>&1 && echo "✓ OK" || echo "✗ BLOCKED"
+        
+        # Probar HTTPS
+        echo -n "HTTPS: "
+        curl -s --connect-timeout 5 https://google.com >/dev/null 2>&1 && echo "✓ OK" || echo "✗ BLOCKED"
+        
+        # Verificar que SSH hacia IP pública esté bloqueado
+        echo -n "SSH to public IP (should be blocked): "
+        timeout 3 nc -z 8.8.8.8 22 >/dev/null 2>&1 && echo "✗ ALLOWED (PROBLEMA)" || echo "✓ BLOCKED"
+        
+        echo "==============================="
+      register: connectivity_tests
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar resultados de pruebas"
+      debug:
+        msg: "{{ connectivity_tests.stdout_lines }}"
+
+    # =============================================================================
+    # PRUEBAS ESPECÍFICAS NFS
+    # =============================================================================
+    - name: "Probar conectividad NFS (Master -> Deploy)"
+      shell: |
+        echo "=== PRUEBAS NFS ==="
+        
+        # Verificar servicios NFS
+        echo -n "Servicio NFS: "
+        systemctl is-active nfs-kernel-server >/dev/null 2>&1 && echo "✓ RUNNING" || echo "✗ NOT RUNNING"
+        
+        # Verificar puerto 2049
+        echo -n "Puerto NFS (2049): "
+        ss -tuln | grep :2049 >/dev/null && echo "✓ LISTENING" || echo "✗ NOT LISTENING"
+        
+        # Verificar portmapper
+        echo -n "Portmapper (111): "
+        ss -tuln | grep :111 >/dev/null && echo "✓ LISTENING" || echo "✗ NOT LISTENING"
+        
+        echo "=================="
+      register: nfs_tests
+      changed_when: false
+      ignore_errors: yes
+      when: playbook_scope == 'master'
+
+    - name: "Mostrar resultados de pruebas NFS"
+      debug:
+        msg: "{{ nfs_tests.stdout_lines }}"
+      when: 
+        - playbook_scope == 'master'
+        - nfs_tests is defined
+
+    # =============================================================================
+    # INFORMACIÓN DE LOGS Y MONITOREO
+    # =============================================================================
+    - name: "Mostrar información de logs"
+      debug:
+        msg:
+          - "=== INFORMACIÓN DE LOGS ==="
+          - "Logs de UFW: /var/log/ufw.log"
+          - "Comando para ver logs: sudo tail -f /var/log/ufw.log"
+          - "Comando para ver estado: sudo ufw status numbered"
+          - "Comando para ver stats: sudo ufw show added"
+          - "=========================="
+
+    # =============================================================================
+    # CREAR SCRIPT DE VERIFICACIÓN
+    # =============================================================================
+    - name: "Crear script de verificación UFW con NFS"
+      copy:
+        dest: "/opt/verify_ufw.sh"
+        content: |
+          #!/bin/bash
+          # Script de verificación UFW con NFS
+          # Generado automáticamente por Ansible
+          
+          echo "=== VERIFICACIÓN UFW + NFS ==="
+          echo "Fecha: $(date)"
+          echo "Servidor: {{ inventory_hostname }}"
+          echo "Tipo: {{ playbook_scope }}"
+          echo ""
+          
+          echo "Estado UFW:"
+          sudo ufw status numbered
+          echo ""
+          
+          echo "Últimas 10 entradas del log UFW:"
+          sudo tail -10 /var/log/ufw.log 2>/dev/null || echo "No hay logs UFW"
+          echo ""
+          
+          echo "Conexiones activas SSH:"
+          ss -tuln | grep :22
+          echo ""
+          
+          {% if playbook_scope == 'master' %}
+          echo "=== VERIFICACIONES NFS SERVER ==="
+          echo "Servicios NFS:"
+          systemctl status nfs-kernel-server --no-pager -l || echo "NFS no instalado"
+          echo ""
+          echo "Puertos NFS activos:"
+          ss -tuln | grep -E ':(111|2049|20048)' || echo "Sin puertos NFS"
+          echo ""
+          echo "Exports NFS:"
+          showmount -e localhost 2>/dev/null || echo "Sin exports configurados"
+          echo ""
+          {% endif %}
+          
+          {% if playbook_scope == 'deploy' %}
+          echo "=== VERIFICACIONES NFS CLIENT ==="
+          echo "Paquete nfs-common:"
+          dpkg -l | grep nfs-common || echo "nfs-common no instalado"
+          echo ""
+          echo "Montajes NFS actuales:"
+          mount | grep nfs || echo "Sin montajes NFS"
+          echo ""
+          {% endif %}
+          
+          echo "Prueba de conectividad externa (SSH debe fallar):"
+          timeout 3 nc -z 8.8.8.8 22 >/dev/null 2>&1 && echo "⚠️  SSH a internet público PERMITIDO" || echo "✅ SSH a internet público BLOQUEADO"
+          
+          echo "================================"
+        owner: "root"
+        group: "root"
+        mode: '0755'
+        backup: yes
+
+    # =============================================================================
+    # RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de configuración UFW + NFS"
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN UFW + NFS COMPLETADA ==="
+          - "Servidor: {{ inventory_hostname }}"
+          - "Tipo: {{ 'NFS SERVER' if playbook_scope == 'master' else 'NFS CLIENT' }}"
+          - "Red interna: {{ networking.address }}{{ networking.mask }}"
+          - ""
+          - "✅ Políticas por defecto: DENY ALL"
+          - "✅ SSH entrante: PERMITIDO (con rate limiting)"
+          - "✅ HTTP/HTTPS entrante: PERMITIDO"
+          - "✅ Puerto 8080: Solo red interna"
+          - "✅ DNS/HTTP/HTTPS saliente: PERMITIDO"
+          - "✅ SSH saliente: Solo red interna"
+          - "✅ SSH a internet público: BLOQUEADO"
+          - "{{ '✅ NFS Server: Puertos 111, 2049, 20048 desde red interna' if playbook_scope == 'master' else '✅ NFS Client: Conexiones hacia red interna' }}"
+          - "✅ Logging: ACTIVADO"
+          - ""
+          - "Script de verificación: /opt/verify_ufw.sh"
+          - "Logs en: /var/log/ufw.log"
+          - "======================================="
+
+    # =============================================================================
+    # COMANDOS ÚTILES
+    # =============================================================================
+    - name: "Mostrar comandos útiles para administración"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Ver estado: sudo ufw status verbose"
+          - "Ver reglas numeradas: sudo ufw status numbered"
+          - "Ver logs en tiempo real: sudo tail -f /var/log/ufw.log"
+          - "Ejecutar verificación: sudo /opt/verify_ufw.sh"
+          - "{{ 'Ver exports NFS: showmount -e localhost' if playbook_scope == 'master' else 'Ver montajes NFS: mount | grep nfs' }}"
+          - "{{ 'Ver servicios NFS: systemctl status nfs-kernel-server' if playbook_scope == 'master' else 'Probar NFS: showmount -e IP_MASTER' }}"
+          - "Deshabilitar UFW: sudo ufw disable"
+          - "Recargar UFW: sudo ufw reload"
+          - "Agregar regla: sudo ufw allow from IP to any port PUERTO"
+          - "Eliminar regla: sudo ufw delete NUMERO"
+          - "===================="

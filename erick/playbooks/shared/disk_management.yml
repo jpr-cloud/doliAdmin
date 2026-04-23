@@ -1,0 +1,71 @@
+# =============================================================================
+# Gestión de Discos - Mount disk para Deploy
+# =============================================================================
+---
+- name: "Configuración de discos adicionales"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Crear punto de montaje /mnt/diskhome"
+      file:
+        path: /mnt/diskhome
+        state: directory
+        mode: '0755'
+
+    - name: "Crear punto de montaje /mnt/diskbackup"
+      file:
+        path: /mnt/diskbackup
+        state: directory
+        mode: '0755'
+
+    - name: "Verificar si el disco adicional existe"
+      stat:
+        path: "{{ disk_configuration.device | default('/dev/sdb') }}"
+      register: additional_disk
+
+    - name: "Formatear disco adicional si existe y no está formateado"
+      filesystem:
+        fstype: "{{ disk_configuration.filesystem_type | default('ext4') }}"
+        dev: "{{ disk_configuration.device | default('/dev/sdb') }}"
+        force: no
+      when: 
+        - additional_disk.stat.exists
+        - disk_configuration.format_disk | default(false)
+
+    - name: "Montar disco adicional en /mnt/diskhome"
+      mount:
+        path: /mnt/diskhome
+        src: "{{ disk_configuration.device | default('/dev/sdb') }}"
+        fstype: "{{ disk_configuration.filesystem_type | default('ext4') }}"
+        opts: "{{ disk_configuration.mount_options | default('discard,nofail,defaults') }}"
+        state: mounted
+      when: 
+        - additional_disk.stat.exists
+        - disk_configuration.auto_mount | default(true)
+
+    - name: "Configurar montaje automático en /etc/fstab"
+      mount:
+        path: /mnt/diskhome
+        src: "{{ disk_configuration.device | default('/dev/sdb') }}"
+        fstype: "{{ disk_configuration.filesystem_type | default('ext4') }}"
+        opts: "{{ disk_configuration.mount_options | default('discard,nofail,defaults') }}"
+        dump: 0
+        passno: 0
+        state: present
+      when: 
+        - additional_disk.stat.exists
+        - disk_configuration.auto_mount | default(true)
+
+    - name: "Optimizar memoria para muchos inodes y dentry (slabtop)"
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'vm.vfs_cache_pressure', value: '50' }
+        - { name: 'vm.dirty_ratio', value: '15' }
+        - { name: 'vm.dirty_background_ratio', value: '5' }
+      when: disk_configuration.optimize_memory | default(true)

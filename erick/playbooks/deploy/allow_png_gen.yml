@@ -1,0 +1,71 @@
+# =============================================================================
+# Permitir generación de PNG desde PDFs
+# =============================================================================
+---
+- name: "Configuración para generación de PNG desde PDFs"
+  hosts: deploy
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Instalar ImageMagick y Ghostscript"
+      package:
+        name:
+          - imagemagick
+          - ghostscript
+        state: present
+
+    - name: "Verificar política actual de ImageMagick"
+      command: grep -n "PDF" /etc/ImageMagick-6/policy.xml
+      register: imagemagick_policy_check
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Habilitar lectura de PDFs en ImageMagick policy.xml"
+      replace:
+        path: /etc/ImageMagick-6/policy.xml
+        regexp: '<policy domain="coder" rights="none" pattern="PDF" />'
+        replace: '<policy domain="coder" rights="read|write" pattern="PDF" />'
+        backup: yes
+      ignore_errors: yes
+
+    - name: "Habilitar lectura de PS en ImageMagick policy.xml"
+      replace:
+        path: /etc/ImageMagick-6/policy.xml
+        regexp: '<policy domain="coder" rights="none" pattern="PS" />'
+        replace: '<policy domain="coder" rights="read|write" pattern="PS" />'
+        backup: yes
+      ignore_errors: yes
+
+    - name: "Verificar configuración de Ghostscript"
+      command: gs --version
+      register: gs_version
+      changed_when: false
+
+    - name: "Mostrar versión de Ghostscript"
+      debug:
+        msg: "Ghostscript version: {{ gs_version.stdout }}"
+
+    - name: "Probar conversión de PDF a PNG"
+      shell: |
+        echo "%!PS-Adobe-3.0
+        /Helvetica findfont 20 scalefont setfont
+        100 100 moveto
+        (Test PDF) show
+        showpage" > /tmp/test.ps
+        ps2pdf /tmp/test.ps /tmp/test.pdf
+        convert /tmp/test.pdf /tmp/test.png
+        ls -la /tmp/test.png
+      register: pdf_test
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Limpiar archivos de prueba"
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/test.ps
+        - /tmp/test.pdf
+        - /tmp/test.png
+      ignore_errors: yes

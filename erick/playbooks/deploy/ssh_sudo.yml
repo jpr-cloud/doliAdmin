@@ -1,0 +1,98 @@
+# =============================================================================
+# Configuración SSH y Sudo en Deploy
+# =============================================================================
+# permisos root /etc/ssh/sshd_config
+#
+# Copia el archivo local files/ssh/sellyoursaas.conf al servidor como /etc/ssh/sshd_config.d/sellyoursaas.conf.
+# permisos seguros (0640).
+#
+# Crea /etc/ssh/sshd_config.d/sellyoursaas-users.conf con una línea AllowUsers por cada usuario sysadmin
+# Permisos seguros (0640).
+#
+# Asegura que los archivos sellyoursaas*.conf tengan permisos correctos (0640).
+#
+# Añade un bloque con la regla Match User osu* y comentarios, para permitir autenticación por contraseña
+#
+# Añade Defaults set_home y use_pty a /etc/sudoers
+# Valida la sintaxis con visudo.
+#
+# Recarga el servicio SSH para aplicar los cambios.
+
+---
+- name: "Configuración SSH y Sudo Deploy"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    ssh_sshd_config: "/etc/ssh/sshd_config"
+    ssh_custom_conf_src: "files/ssh/sellyoursaas.conf"
+    ssh_custom_conf_dest: "/etc/ssh/sshd_config.d/sellyoursaas.conf"
+    ssh_users_conf_dest: "/etc/ssh/sshd_config.d/sellyoursaas-users.conf"
+    ssh_sysadmin_users:
+      - "{{ system_users.UnixPersonalSysadmin }}"
+      - "{{ system_users.app_admin }}"
+
+  tasks:
+    - name: "Asegurar permisos correctos en sshd_config"
+      file:
+        path: "{{ ssh_sshd_config }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: "Copiar archivo sellyoursaas.conf"
+      copy:
+        src: "{{ ssh_custom_conf_src }}"
+        dest: "{{ ssh_custom_conf_dest }}"
+        owner: root
+        group: root
+        mode: '0640'
+      ignore_errors: yes
+
+    - name: "Generar archivo sellyoursaas-users.conf con AllowUsers"
+      copy:
+        dest: "{{ ssh_users_conf_dest }}"
+        owner: root
+        group: root
+        mode: '0640'
+        content: |
+          {% for user in ssh_sysadmin_users %}
+          AllowUsers {{ user }}
+          {% endfor %}
+          root
+
+    - name: "Asegurar permisos en archivos sellyoursaas*.conf"
+      file:
+        path: "{{ item }}"
+        mode: '0640'
+      loop:
+        - "{{ ssh_custom_conf_dest }}"
+        - "{{ ssh_users_conf_dest }}"
+      ignore_errors: yes
+
+    - name: "Agregar bloque especial al final de sshd_config si no existe"
+      blockinfile:
+        path: "{{ ssh_sshd_config }}"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK FOR SELLYOURSAAS"
+        block: |
+          # BEGIN Block for SellYourSaas
+          # Warning Match rule works only in sshd_config, not into include files
+          Match User osu*
+          PasswordAuthentication=yes
+          # END Block for SellYourSaas
+
+    - name: "Agregar Defaults set_home y use_pty a /etc/sudoers"
+      lineinfile:
+        path: /etc/sudoers
+        line: "{{ item }}"
+        state: present
+        validate: 'visudo -cf %s'
+      loop:
+        - "Defaults set_home"
+        - "Defaults use_pty"
+
+    - name: "Recargar SSH"
+      service:
+        name: ssh
+        state: reloaded

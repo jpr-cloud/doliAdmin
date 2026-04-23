@@ -1,0 +1,272 @@
+# =============================================================================
+# Apache Watchdog Installation
+# =============================================================================
+---
+- name: "Apache Watchdog Installation"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  vars:
+    dolibarr_sellyoursaas_dir: "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+    watchdog_scripts:
+      - { name: "apache_watchdog_launcher1", script: "apache_watchdog_launcher1.sh", description: "Apache Watchdog Launcher 1" }
+      - { name: "apache_watchdog_launcher2", script: "apache_watchdog_launcher2.sh", description: "Apache Watchdog Launcher 2" }
+      - { name: "apache_watchdog_launcher3", script: "apache_watchdog_launcher3.sh", description: "Apache Watchdog Launcher 3" }
+      - { name: "smtp_watchdog_launcher1", script: "smtp_watchdog_launcher1.sh", description: "SMTP Watchdog Launcher 1" }
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIÓN DE SCRIPTS WATCHDOG
+    # =============================================================================
+    - name: "Verificar que los scripts watchdog existen"
+      stat:
+        path: "{{ dolibarr_sellyoursaas_dir }}/scripts/{{ item.script }}"
+      register: watchdog_scripts_check
+      loop: "{{ watchdog_scripts }}"
+
+    - name: "Mostrar estado de scripts watchdog"
+      debug:
+        msg: "{{ item.item.script }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ watchdog_scripts_check.results }}"
+
+    # =============================================================================
+    # CONFIGURAR PERMISOS DE SCRIPTS
+    # =============================================================================
+    - name: "Configurar permisos de ejecución para scripts watchdog"
+      file:
+        path: "{{ dolibarr_sellyoursaas_dir }}/scripts/{{ item.item.script }}"
+        mode: '0755'
+        owner: "{{ system_users.admin }}"
+        group: "{{ system_users.admin }}"
+      loop: "{{ watchdog_scripts_check.results }}"
+      when: item.stat.exists
+
+    # =============================================================================
+    # CREAR ENLACES SIMBÓLICOS
+    # =============================================================================
+    - name: "Crear enlaces simbólicos para scripts watchdog"
+      file:
+        src: "{{ dolibarr_sellyoursaas_dir }}/scripts/{{ item.item.script }}"
+        dest: "/etc/init.d/{{ item.item.name }}"
+        state: link
+        force: yes
+      loop: "{{ watchdog_scripts_check.results }}"
+      when: item.stat.exists
+
+    # =============================================================================
+    # CREAR ARCHIVOS DE SERVICIO SYSTEMD
+    # =============================================================================
+    - name: "Crear archivos de servicio systemd para watchdogs"
+      copy:
+        dest: "/etc/systemd/system/{{ item.item.name }}.service"
+        content: |
+          [Unit]
+          Description={{ item.item.description }}
+          After=network.target apache2.service
+          Wants=network.target
+
+          [Service]
+          Type=forking
+          ExecStart=/etc/init.d/{{ item.item.name }} start
+          ExecStop=/etc/init.d/{{ item.item.name }} stop
+          ExecReload=/etc/init.d/{{ item.item.name }} restart
+          User={{ system_users.admin }}
+          Group={{ system_users.admin }}
+          Restart=on-failure
+          RestartSec=10
+          TimeoutStartSec=60
+          TimeoutStopSec=30
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+        backup: yes
+      loop: "{{ watchdog_scripts_check.results }}"
+      when: item.stat.exists
+      notify: reload systemd
+
+    # =============================================================================
+    # RECARGAR SYSTEMD
+    # =============================================================================
+    - name: "Recargar systemd daemon"
+      systemd:
+        daemon_reload: yes
+
+    # =============================================================================
+    # HABILITAR SERVICIOS
+    # =============================================================================
+    - name: "Habilitar servicios watchdog"
+      systemd:
+        name: "{{ item.item.name }}"
+        enabled: yes
+        daemon_reload: yes
+      loop: "{{ watchdog_scripts_check.results }}"
+      when: item.stat.exists
+
+    # =============================================================================
+    # VERIFICAR ESTADO DE SERVICIOS
+    # =============================================================================
+    - name: "Verificar estado de servicios watchdog"
+      systemd:
+        name: "{{ item.item.name }}"
+      register: watchdog_services_status
+      loop: "{{ watchdog_scripts_check.results }}"
+      when: item.stat.exists
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: "Verificar que los enlaces simbólicos se crearon correctamente"
+      stat:
+        path: "/etc/init.d/{{ item.name }}"
+      register: symlinks_check
+      loop: "{{ watchdog_scripts }}"
+
+    - name: "Mostrar estado de enlaces simbólicos"
+      debug:
+        msg: 
+          - "=== ENLACE SIMBÓLICO ==="
+          - "Servicio: {{ item.item.name }}"
+          - "Script: {{ item.item.script }}"
+          - "Enlace: {{ 'CREADO' if item.stat.exists else 'NO CREADO' }}"
+          - "Apunta a: {{ item.stat.lnk_source if item.stat.islnk else 'N/A' }}"
+          - "======================="
+      loop: "{{ symlinks_check.results }}"
+
+    - name: "Verificar archivos de servicio systemd"
+      stat:
+        path: "/etc/systemd/system/{{ item.name }}.service"
+      register: service_files_check
+      loop: "{{ watchdog_scripts }}"
+
+    - name: "Mostrar estado de archivos de servicio"
+      debug:
+        msg: 
+          - "=== ARCHIVO DE SERVICIO ==="
+          - "Servicio: {{ item.item.name }}"
+          - "Archivo: {{ 'CREADO' if item.stat.exists else 'NO CREADO' }}"
+          - "Tamaño: {{ item.stat.size | default('N/A') }}"
+          - "=========================="
+      loop: "{{ service_files_check.results }}"
+
+    - name: "Listar todos los servicios watchdog instalados"
+      shell: "systemctl list-unit-files | grep watchdog"
+      register: watchdog_unit_files
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar servicios watchdog en systemd"
+      debug:
+        msg:
+          - "=== SERVICIOS WATCHDOG EN SYSTEMD ==="
+          - "{{ watchdog_unit_files.stdout_lines | default(['No se encontraron servicios watchdog']) }}"
+          - "===================================="
+
+    - name: "Listar enlaces simbólicos en /etc/init.d/"
+      shell: "ls -la /etc/init.d/*watchdog* 2>/dev/null || echo 'No hay enlaces watchdog'"
+      register: init_d_watchdog
+      changed_when: false
+
+    - name: "Mostrar enlaces en /etc/init.d/"
+      debug:
+        msg:
+          - "=== ENLACES EN /etc/init.d/ ==="
+          - "{{ init_d_watchdog.stdout_lines }}"
+          - "=============================="
+
+    - name: "Verificar permisos de scripts originales"
+      shell: "ls -la {{ dolibarr_sellyoursaas_dir }}/scripts/*watchdog*"
+      register: original_scripts_perms
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar permisos de scripts originales"
+      debug:
+        msg:
+          - "=== SCRIPTS ORIGINALES ==="
+          - "{{ original_scripts_perms.stdout_lines | default(['No se encontraron scripts']) }}"
+          - "========================="
+
+    # =============================================================================
+    # CREAR RESÚMENES USANDO SET_FACT
+    # =============================================================================
+    - name: "Crear lista de scripts verificados"
+      set_fact:
+        scripts_summary: "{{ scripts_summary | default([]) + [item.item.script + ': ' + ('EXISTE' if item.stat.exists else 'NO EXISTE')] }}"
+      loop: "{{ watchdog_scripts_check.results }}"
+
+    - name: "Crear lista de servicios configurados"
+      set_fact:
+        services_summary: "{{ services_summary | default([]) + [item.name + '.service', '/etc/init.d/' + item.name] }}"
+      loop: "{{ watchdog_scripts }}"
+
+    # =============================================================================
+    # MOSTRAR RESUMEN FINAL
+    # =============================================================================
+    - name: "Mostrar resumen de instalación Apache Watchdog"
+      debug:
+        msg:
+          - "=== INSTALACIÓN APACHE WATCHDOG COMPLETADA ==="
+          - "Scripts verificados:"
+          - "{{ scripts_summary | default(['No hay scripts verificados']) }}"
+          - ""
+          - "Servicios configurados:"
+          - "{{ services_summary | default(['No hay servicios configurados']) }}"
+          - ""
+          - "Próximos pasos:"
+          - "  1. Verificar logs: journalctl -u apache_watchdog_launcher1"
+          - "  2. Iniciar servicios: systemctl start apache_watchdog_launcher1"
+          - "  3. Verificar estado: systemctl status apache_watchdog_launcher1"
+          - "============================================="
+
+    - name: "Mostrar comandos útiles"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES ==="
+          - "Ver todos los servicios: systemctl list-unit-files | grep watchdog"
+          - "Ver estado específico: systemctl status apache_watchdog_launcher1"
+          - "Ver logs: journalctl -u apache_watchdog_launcher1 -f"
+          - "Iniciar servicio: systemctl start apache_watchdog_launcher1"
+          - "Parar servicio: systemctl stop apache_watchdog_launcher1"
+          - "Reiniciar servicio: systemctl restart apache_watchdog_launcher1"
+          - "Ver configuración: cat /etc/systemd/system/apache_watchdog_launcher1.service"
+          - "Ver script: ls -la /etc/init.d/apache_watchdog_launcher1"
+          - "======================"
+
+    # =============================================================================
+    # VERIFICACIONES DETALLADAS POR SERVICIO
+    # =============================================================================
+    - name: "Mostrar estado detallado de cada servicio watchdog"
+      debug:
+        msg:
+          - "=== ESTADO DETALLADO: {{ item.name }} ==="
+          - "Script: {{ item.script }}"
+          - "Servicio: {{ item.name }}.service"
+          - "Enlace: /etc/init.d/{{ item.name }}"
+          - "Descripción: {{ item.description }}"
+          - "==============================="
+      loop: "{{ watchdog_scripts }}"
+
+    - name: "Verificar que todos los archivos necesarios existen"
+      shell: |
+        echo "=== VERIFICACIÓN FINAL ==="
+        echo "Script original: $(test -f {{ dolibarr_sellyoursaas_dir }}/scripts/{{ item.script }} && echo 'EXISTE' || echo 'NO EXISTE')"
+        echo "Enlace init.d: $(test -L /etc/init.d/{{ item.name }} && echo 'EXISTE' || echo 'NO EXISTE')"
+        echo "Servicio systemd: $(test -f /etc/systemd/system/{{ item.name }}.service && echo 'EXISTE' || echo 'NO EXISTE')"
+        echo "Estado habilitado: $(systemctl is-enabled {{ item.name }} 2>/dev/null || echo 'NO HABILITADO')"
+        echo "=========================="
+      register: final_verification
+      loop: "{{ watchdog_scripts }}"
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Mostrar verificación final por servicio"
+      debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ final_verification.results }}"
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

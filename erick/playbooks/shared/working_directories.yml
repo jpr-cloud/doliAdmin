@@ -1,0 +1,197 @@
+# =============================================================================
+# Creation of working directories
+# =============================================================================
+---
+- name: 'Crear directorios de trabajo'
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  vars:
+    # Eliminar la definición recursiva problemática
+    # scope: '{{ scope | default("master") }}'  # <-- ESTA LÍNEA CAUSA EL PROBLEMA
+    
+    # Usar una variable interna en su lugar
+    playbook_scope: '{{ scope }}'
+
+  tasks:
+    # =============================================================================
+    # DIRECTORIO COMÚN PARA AMBOS SERVIDORES
+    # =============================================================================
+    - name: 'Verificar variables requeridas'
+      assert:
+        that:
+          - directories is defined
+          - directories.diskhome is defined
+          - directories.diskbackup is defined
+          - directories.jail is defined
+          - system_users is defined
+          - system_users.admin is defined
+        fail_msg: "Faltan variables requeridas en group_vars/all.yml"
+        success_msg: "Variables verificadas correctamente"
+
+    - name: 'Mostrar configuración del playbook'
+      debug:
+        msg:
+          - "=== CONFIGURACIÓN DE DIRECTORIOS ==="
+          - "Scope: {{ playbook_scope }}"
+          - "Target: {{ target }}"
+          - "Disk Home: {{ directories.diskhome }}"
+          - "Disk Backup: {{ directories.diskbackup }}"
+          - "Admin User: {{ system_users.admin }}"
+          - "=================================="
+
+    - name: 'Creando el directorio {{ directories.diskhome }}/backup'
+      file:
+        path: '{{ directories.diskhome }}/backup'
+        state: directory
+        owner: '{{ system_users.admin }}'
+        group: root
+        mode: '0755'
+        recurse: yes
+
+    # =============================================================================
+    # DIRECTORIOS ESPECÍFICOS PARA DEPLOYMENT SERVERS
+    # Creation of working directories
+    # =============================================================================
+    - name: 'Crear directorios de trabajo principales (solo deployment)'
+      file:
+        path: '{{ item }}'
+        state: directory
+        owner: '{{ system_users.admin }}'
+        group: root
+        mode: '0755'
+        recurse: yes
+      loop:
+        - '{{ directories.jail }}' # mkdir /home/jail;
+        - '{{ directories.diskhome }}/home' # mkdir /mnt/diskhome/home;
+        - '{{ directories.diskbackup }}/archives-test' # /mnt/diskbackup/archives-test
+        - '{{ directories.diskbackup }}/archives-paid' # mkdir /mnt/diskbackup/archives-paid
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam' # mkdir -p /home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam;
+# La siguiente línea, la AI tomó una descición que no debió haber tomado, ya que no es necesario crear este directorio de aceurdo a la documentación oficial
+#        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/archives'
+      # when: playbook_scope == 'deploy'
+
+    - name: 'Mostrar directorios creados para deployment'
+      debug:
+        msg:
+          - "=== DIRECTORIOS DEPLOYMENT CREADOS ==="
+          - "{{ item }}"
+      loop:
+        - '{{ directories.jail }}'
+        - '{{ directories.diskhome }}/home'
+        - '{{ directories.diskbackup }}/archives-test'
+        - '{{ directories.diskbackup }}/archives-paid'
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam'
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/archives'
+      # when: playbook_scope == 'deploy'
+
+    # =============================================================================
+    # ENLACES SIMBÓLICOS PARA DEPLOYMENT SERVERS
+    # =============================================================================
+    - name: 'Verificar que el directorio source existe antes de crear enlace'
+      stat:
+        path: '{{ directories.diskhome }}/backup'
+      register: source_backup_check
+      # when: playbook_scope == 'deploy'
+
+    - name: 'Mostrar estado del directorio source'
+      debug:
+        msg: "Directorio {{ directories.diskhome }}/backup existe: {{ source_backup_check.stat.exists | default(false) }}"
+      #when: playbook_scope == 'deploy'
+
+    - name: 'Crear enlace simbólico para backup (deployment only)'
+      file:
+        src: '{{ directories.diskhome }}/backup'
+        dest: '{{ directories.diskbackup }}/backup'
+        state: link
+        force: yes
+        owner: '{{ system_users.admin }}'
+        group: '{{ system_users.admin }}'
+      when: 
+        # - playbook_scope == 'deploy'
+        - source_backup_check.stat.exists | default(false)
+
+    # =============================================================================
+    # VERIFICACIONES FINALES
+    # =============================================================================
+    - name: 'Verificar directorios creados'
+      stat:
+        path: '{{ item }}'
+      register: created_dirs_check
+      loop:
+        - '{{ directories.diskhome }}/backup'
+        - '{{ directories.jail }}'
+        - '{{ directories.diskbackup }}/archives-test  }}'
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/archives'
+      when: 
+        - item != ''
+        - item != directories.diskhome  # Evitar duplicados
+        - item == directories.diskhome + '/backup'
+
+    - name: 'Mostrar estado de directorios verificados'
+      debug:
+        msg: "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ created_dirs_check.results | default([]) }}"
+      when: 
+        - created_dirs_check is defined
+        - created_dirs_check.results is defined
+        - item.stat is defined
+
+    # =============================================================================
+    # VERIFICACIÓN ALTERNATIVA MÁS ROBUSTA
+    # =============================================================================
+    - name: 'Verificar directorios comunes (siempre)'
+      stat:
+        path: '{{ directories.diskhome }}/backup'
+      register: common_backup_check
+
+    - name: 'Verificar directorios deployment (solo deploy)'
+      stat:
+        path: '{{ item }}'
+      register: deploy_dirs_check
+      loop:
+        - '{{ directories.jail }}'
+        - '{{ directories.diskhome }}/home'
+        - '{{ directories.diskbackup }}/archives-test'
+        - '{{ directories.diskbackup }}/archives-paid'
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/spam'
+        - '/home/admin/wwwroot/dolibarr_documents/sellyoursaas/archives'
+      # when: playbook_scope == 'deploy'
+
+    - name: 'Mostrar estado de directorios comunes'
+      debug:
+        msg:
+          - "=== ESTADO DIRECTORIOS COMUNES ==="
+          - "{{ directories.diskhome }}/backup: {{ 'EXISTE' if common_backup_check.stat.exists else 'NO EXISTE' }}"
+          - "=================================="
+
+    - name: 'Mostrar estado de directorios deployment'
+      debug:
+        msg: 
+          - "=== ESTADO DIRECTORIOS DEPLOYMENT ==="
+          - "{{ item.item }}: {{ 'EXISTE' if item.stat.exists else 'NO EXISTE' }}"
+      loop: "{{ deploy_dirs_check.results | default([]) }}"
+      when: 
+        # - playbook_scope == 'deploy'
+        - deploy_dirs_check is defined
+        - deploy_dirs_check.results is defined
+
+    - name: 'Verificar enlaces simbólicos (deployment only)'
+      stat:
+        path: '{{ directories.diskbackup }}/backup'
+      register: symlink_check
+      # when: playbook_scope == 'deploy'
+
+    - name: 'Mostrar estado del enlace simbólico'
+      debug:
+        msg:
+          - "=== ENLACE SIMBÓLICO ==="
+          - "Ruta: {{ directories.diskbackup }}/backup"
+          - "Existe: {{ symlink_check.stat.exists | default(false) }}"
+          - "Es enlace: {{ symlink_check.stat.islnk | default(false) }}"
+          - "Destino: {{ symlink_check.stat.lnk_target | default('N/A') }}"
+          - "======================="
+      when: 
+        # - playbook_scope == 'deploy'
+        - symlink_check is defined
+        - symlink_check.stat is defined

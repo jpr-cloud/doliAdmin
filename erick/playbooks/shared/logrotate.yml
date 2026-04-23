@@ -1,0 +1,85 @@
+# =============================================================================
+# Configuración de Logrotate
+# =============================================================================
+---
+- name: "Configuración de Logrotate"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+
+  tasks:
+    - name: "Agregar usuario syslog a logrotate.conf"
+      lineinfile:
+        path: /etc/logrotate.conf
+        regexp: '^su root syslog'
+        line: 'su root syslog'
+        insertafter: '^# su directive'
+
+    - name: "Configurar logrotate para Apache (365 días)"
+      replace:
+        path: /etc/logrotate.d/apache2
+        regexp: 'rotate \d+'
+        replace: 'rotate 365'
+
+    - name: "Crear configuración logrotate para logs de admin"
+      blockinfile:
+        path: /etc/logrotate.d/logrotate_admin_log
+        create: yes
+        block: |
+          {{ directories.logs }}/*.log {
+              daily
+              notifempty
+              rotate 7
+              compress
+              sharedscripts
+              postrotate
+                if [ -f "`. /etc/apache2/envvars ; echo ${APACHE_PID_FILE:-/var/run/apache2.pid}`" ]; then
+                        /etc/init.d/apache2 reload > /dev/null
+                fi
+              endscript
+          }
+        marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
+    - name: "Crear configuración logrotate para logs de admin"
+      blockinfile:
+        path: /etc/logrotate.d/logrotate_sellyoursaas_log
+        create: yes
+        block: |
+          /var/log/phpsendmail.log /var/log/phpmail.log {
+                  su root root
+                  weekly
+                  rotate 4
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 666 syslog adm
+          }
+
+          /var/log/remote_server.log {
+                  su root root
+                  weekly
+                  rotate 4
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 600 root root
+          }
+
+          /home/admin/wwwroot/dolibarr_documents/*.log {
+                  su admin www-data
+                  daily
+                  rotate 7
+                  compress
+                  delaycompress
+                  missingok
+                  notifempty
+                  create 660 admin www-data
+          }
+        marker: "# {mark} ANSIBLE MANAGED ADMIN LOGROTATE"
+
+  handlers:
+    - name: restart systemd-journald
+      systemd:
+        name: systemd-journald
+        state: restarted

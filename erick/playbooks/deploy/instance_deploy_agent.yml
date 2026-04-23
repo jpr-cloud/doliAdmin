@@ -1,0 +1,512 @@
+# =============================================================================
+# INSTALACIÓN Y ACTIVACIÓN DEL AGENTE DE DEPLOYMENT - UBUNTU 24.04
+# =============================================================================
+---
+- name: "Instance Deploy Agent Installation (Ubuntu 24.04)"
+  hosts: '{{ target }}'
+  become: true
+  gather_facts: yes
+  vars:
+    playbook_scope: '{{ scope | default("deploy") }}'
+
+  tasks:
+    # =============================================================================
+    # VERIFICACIONES DE SISTEMA
+    # =============================================================================
+    - name: "Verificar versión de Ubuntu"
+      debug:
+        msg:
+          - "=== INFORMACIÓN DEL SISTEMA ==="
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Kernel: {{ ansible_kernel }}"
+          - "Architecture: {{ ansible_architecture }}"
+          - "Init system: {{ ansible_service_mgr }}"
+          - "=============================="
+
+    - name: "Verificar que es Ubuntu 20.04 o superior"
+      assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+          - ansible_distribution_version is version('20.04', '>=')
+          - ansible_service_mgr == "systemd"
+        fail_msg: "Este playbook requiere Ubuntu 20.04+ con systemd"
+        success_msg: "Sistema compatible verificado"
+
+    - name: "Verificar variables requeridas"
+      assert:
+        that:
+          - directories is defined
+          - directories.wwwroot is defined
+          - system_users is defined
+          - system_users.admin is defined
+          - deployment_server is defined
+          - deployment_server.ip_internal is defined
+        fail_msg: "Faltan variables requeridas"
+        success_msg: "Variables verificadas"
+
+    # =============================================================================
+    # VERIFICACIÓN DE PREREQUISITOS
+    # =============================================================================
+    - name: "Verificar que el script remote_server_launcher.sh existe"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+      register: remote_launcher_script_check
+
+    - name: "Mostrar estado del script remote_server_launcher"
+      debug:
+        msg: 
+          - "=== VERIFICACIÓN DE SCRIPTS ==="
+          - "Script remote_server_launcher.sh: {{ 'EXISTE' if remote_launcher_script_check.stat.exists else 'NO EXISTE' }}"
+          - "Ruta: {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+          - "============================="
+
+    - name: "Verificar que el directorio de documentos existe"
+      stat:
+        path: "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas"
+      register: documents_dir_check
+
+    - name: "Crear directorio de documentos si no existe"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "www-data"
+        mode: '0755'
+        recurse: yes
+      when: not documents_dir_check.stat.exists
+
+    - name: "Fallo si el script no existe"
+      fail:
+        msg: "El script remote_server_launcher.sh no existe en {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/"
+      when: not remote_launcher_script_check.stat.exists
+
+    - name: "Configurar logrotate para remote-server-launcher"
+      copy:
+        dest: /etc/logrotate.d/remote-server-launcher
+        content: |
+          /home/admin/logs/remote-server-launcher.log {
+              daily
+              missingok
+              rotate 7
+              compress
+              delaycompress
+              notifempty
+              copytruncate
+              su {{ system_users.admin }} www-data
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    # =============================================================================
+    # ANALIZAR EL SCRIPT ORIGINAL
+    # =============================================================================
+    - name: "Analizar el script original"
+      shell: |
+        echo "=== ANÁLISIS DEL SCRIPT ==="
+        echo "Tipo de archivo:"
+        file {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh
+        echo ""
+        echo "Primeras 10 líneas:"
+        head -10 {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh
+        echo ""
+        echo "Funciones disponibles:"
+        grep -E '^(function|[a-zA-Z_]+\(\))' {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh || echo "Sin funciones detectadas"
+        echo ""
+        echo "Puertos mencionados:"
+        grep -i "8080\|port" {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh || echo "Sin referencias a puerto"
+        echo "========================="
+      register: script_analysis
+      changed_when: false
+
+    - name: "Mostrar análisis del script"
+      debug:
+        msg: "{{ script_analysis.stdout_lines }}"
+
+    # =============================================================================
+    # CONFIGURACIÓN DE PERMISOS
+    # =============================================================================
+    - name: "Configurar permisos de ejecución para remote_server_launcher.sh"
+      file:
+        path: "{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+        mode: '0755'
+        owner: "{{ system_users.admin }}"
+        group: "www-data"
+
+
+
+    # =============================================================================
+    # CREAR WRAPPER SCRIPT PARA SYSTEMD (UBUNTU 24.04) - VERSIÓN CORREGIDA
+    # =============================================================================
+    - name: "Crear directorio para PID file con permisos correctos"
+      file:
+        path: "/var/run/remote-server-launcher"
+        state: directory
+        owner: "{{ system_users.admin }}"
+        group: "www-data"
+        mode: '0755'
+
+    - name: "Crear wrapper script optimizado para systemd (versión corregida)"
+      copy:
+        dest: "/usr/local/bin/remote-server-launcher-wrapper"
+        content: |
+          #!/bin/bash
+          # Wrapper script for remote_server_launcher.sh - Ubuntu 24.04
+          # Optimizado para systemd - VERSIÓN CORREGIDA
+          
+          set -euo pipefail
+          
+          # Variables - CORREGIDAS para permisos
+          SCRIPT_PATH="{{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+          USER="{{ system_users.admin }}"
+          DOCS_PATH="{{ directories.wwwroot }}/dolibarr_documents/sellyoursaas"
+          PIDFILE="/var/run/remote-server-launcher/remote-server-launcher.pid"
+          LOGFILE="/home/admin/logs/remote-server-launcher.log"  # ← CAMBIO: usar directorio de logs de admin
+          
+          # Crear directorio de logs si no existe
+          mkdir -p "$(dirname "$LOGFILE")"
+          touch "$LOGFILE"
+          chown "$USER:www-data" "$LOGFILE" 2>/dev/null || true  # ← Ahora funcionará
+          
+          # Crear directorio de PID si no existe
+          mkdir -p "$(dirname "$PIDFILE")"
+          chown "$USER:www-data" "$(dirname "$PIDFILE")" 2>/dev/null || true
+          
+          # Función de logging
+          log() {
+              echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"
+          }
+          
+          # ... resto del script igual ...
+          # Función start
+          start() {
+              log "Iniciando remote-server-launcher..."
+              
+              # Verificar que el script existe
+              if [[ ! -f "$SCRIPT_PATH" ]]; then
+                  log "ERROR: Script no encontrado en $SCRIPT_PATH"
+                  exit 1
+              fi
+              
+              # Verificar que el directorio de documentos existe
+              if [[ ! -d "$DOCS_PATH" ]]; then
+                  log "ERROR: Directorio de documentos no encontrado en $DOCS_PATH"
+                  exit 1
+              fi
+              
+              # Cambiar al directorio correcto
+              cd "{{ directories.wwwroot }}/dolibarr_sellyoursaas"
+              
+              # Ejecutar el script como daemon
+              log "Ejecutando: $SCRIPT_PATH"
+              
+              # Si el script original acepta parámetros start/stop
+              if grep -q "start\|stop\|status" "$SCRIPT_PATH"; then
+                  log "Script detectado como servicio SysV, ejecutando con parámetro start"
+                  sudo -u "$USER" "$SCRIPT_PATH" start >> "$LOGFILE" 2>&1 &
+              else
+                  log "Script detectado como daemon directo"
+                  sudo -u "$USER" "$SCRIPT_PATH" >> "$LOGFILE" 2>&1 &
+              fi
+              
+              local pid=$!
+              
+              # Escribir PID file con manejo de errores
+              if ! echo "$pid" > "$PIDFILE" 2>/dev/null; then
+                  log "ERROR: No se puede escribir PID file en $PIDFILE"
+                  log "Intentando crear PID file alternativo..."
+                  PIDFILE="/tmp/remote-server-launcher.pid"
+                  echo "$pid" > "$PIDFILE"
+                  log "PID file creado en ubicación alternativa: $PIDFILE"
+              fi
+              
+              log "Servicio iniciado con PID: $pid"
+              
+              # Esperar un momento y verificar que sigue corriendo
+              sleep 3
+              if ! kill -0 "$pid" 2>/dev/null; then
+                  log "ERROR: El proceso terminó inmediatamente"
+                  log "Verificando logs del script..."
+                  tail -5 "$LOGFILE"
+                  rm -f "$PIDFILE"
+                  exit 1
+              fi
+              
+              log "Servicio iniciado correctamente"
+          }
+          
+          # Función stop
+          stop() {
+              log "Deteniendo remote-server-launcher..."
+              
+              if [[ -f "$PIDFILE" ]]; then
+                  local pid=$(cat "$PIDFILE")
+                  if kill -0 "$pid" 2>/dev/null; then
+                      kill "$pid"
+                      sleep 2
+                      if kill -0 "$pid" 2>/dev/null; then
+                          kill -9 "$pid"
+                      fi
+                      log "Proceso $pid terminado"
+                  fi
+                  rm -f "$PIDFILE"
+              fi
+              
+              # También intentar con el script original si tiene función stop
+              if grep -q "stop" "$SCRIPT_PATH"; then
+                  sudo -u "$USER" "$SCRIPT_PATH" stop >> "$LOGFILE" 2>&1 || true
+              fi
+              
+              log "Servicio detenido"
+          }
+          
+          # Función status
+          status() {
+              if [[ -f "$PIDFILE" ]]; then
+                  local pid=$(cat "$PIDFILE")
+                  if kill -0 "$pid" 2>/dev/null; then
+                      log "Servicio ejecutándose con PID: $pid"
+                      return 0
+                  else
+                      log "PID file existe pero proceso no está corriendo"
+                      rm -f "$PIDFILE"
+                      return 1
+                  fi
+              else
+                  log "Servicio no está ejecutándose"
+                  return 1
+              fi
+          }
+          
+          # Main
+          case "${1:-}" in
+              start)
+                  start
+                  ;;
+              stop)
+                  stop
+                  ;;
+              restart)
+                  stop
+                  sleep 1
+                  start
+                  ;;
+              status)
+                  status
+                  ;;
+              *)
+                  echo "Uso: $0 {start|stop|restart|status}"
+                  exit 1
+                  ;;
+          esac
+        owner: root
+        group: root
+        mode: '0755'
+
+    # =============================================================================
+    # CREAR SERVICIO SYSTEMD NATIVO (UBUNTU 24.04) - VERSIÓN CORREGIDA
+    # =============================================================================
+    - name: "Crear archivo de servicio systemd nativo (versión corregida)"
+      copy:
+        dest: /etc/systemd/system/remote-server-launcher.service
+        content: |
+          # /etc/systemd/system/remote-server-launcher.service
+          # Servicio systemd nativo para Ubuntu 24.04 - VERSIÓN CORREGIDA
+          
+          [Unit]
+          Description=Remote Server Launcher for SellYourSaaS
+          Documentation=man:systemd.service(5)
+          After=network-online.target apache2.service mysql.service
+          Wants=network-online.target
+          RequiresMountsFor={{ directories.wwwroot }}
+          
+          [Service]
+          Type=forking
+          User={{ system_users.admin }}
+          Group=www-data
+          
+          # Directorios de trabajo
+          WorkingDirectory={{ directories.wwwroot }}/dolibarr_sellyoursaas
+          
+          # Scripts
+          ExecStart=/usr/local/bin/remote-server-launcher-wrapper start
+          ExecStop=/usr/local/bin/remote-server-launcher-wrapper stop
+          ExecReload=/usr/local/bin/remote-server-launcher-wrapper restart
+          
+          # PID - CORREGIDO
+          PIDFile=/var/run/remote-server-launcher/remote-server-launcher.pid
+          
+          # Timeouts - AUMENTADOS
+          TimeoutStartSec=60
+          TimeoutStopSec=30
+          
+          # Restart policy - RELAJADO
+          Restart=on-failure
+          RestartSec=15
+          StartLimitInterval=600
+          StartLimitBurst=5
+          
+          # Security (Ubuntu 24.04 hardening) - RELAJADO
+          NoNewPrivileges=true
+          PrivateTmp=false
+          ProtectSystem=false
+          ProtectHome=false
+          ReadWritePaths={{ directories.wwwroot }} /var/log /var/run /tmp
+          
+          # Logging
+          StandardOutput=journal
+          StandardError=journal
+          SyslogIdentifier=remote-server-launcher
+          
+          [Install]
+          WantedBy=multi-user.target
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload systemd
+
+    - name: "Configurar logrotate para remote-server-launcher"
+      copy:
+        dest: /etc/logrotate.d/remote-server-launcher
+        content: |
+          /home/admin/logs/remote-server-launcher.log {
+              daily
+              missingok
+              rotate 7
+              compress
+              delaycompress
+              notifempty
+              copytruncate
+              su {{ system_users.admin }} www-data
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    # =============================================================================
+    # SYSTEMD CONFIGURATION
+    # =============================================================================
+    - name: "Recargar systemd daemon"
+      systemd:
+        daemon_reload: yes
+
+    - name: "Habilitar servicio remote-server-launcher"
+      systemd:
+        name: remote-server-launcher.service
+        enabled: yes
+        daemon_reload: yes
+
+    - name: "Verificar estado del servicio"
+      shell: |
+        echo "=== ESTADO DEL SERVICIO ==="
+        systemctl is-enabled remote-server-launcher.service
+        systemctl is-active remote-server-launcher.service || echo "inactive"
+        echo "=========================="
+      register: service_status
+      changed_when: false
+
+    - name: "Mostrar estado del servicio"
+      debug:
+        msg: "{{ service_status.stdout_lines }}"
+
+    # =============================================================================
+    # INICIAR SERVICIO
+    # =============================================================================
+    - name: "Iniciar servicio remote-server-launcher"
+      systemd:
+        name: remote-server-launcher.service
+        state: started
+      register: service_start_result
+      ignore_errors: yes
+
+    - name: "Esperar un momento para que el servicio se inicie"
+      pause:
+        seconds: 3
+      when: service_start_result is succeeded
+
+    # =============================================================================
+    # VERIFICACIONES POST-INICIO
+    # =============================================================================
+    - name: "Verificar estado final del servicio"
+      systemd:
+        name: remote-server-launcher.service
+      register: final_service_status
+
+    - name: "Verificar puerto 8080"
+      wait_for:
+        port: 8080
+        host: "{{ deployment_server.ip_internal }}"
+        timeout: 10
+      register: port_8080_check
+      ignore_errors: yes
+
+    - name: "Verificar logs del servicio"
+      shell: "journalctl -u remote-server-launcher.service --no-pager -l --since '2 minutes ago'"
+      register: service_logs
+      changed_when: false
+
+    - name: "Verificar archivo de log personalizado"
+      shell: "tail -20 /home/admin/logs/remote-server-launcher.log 2>/dev/null || echo 'Log file not found'"
+      register: custom_logs
+      changed_when: false
+
+    # =============================================================================
+    # MOSTRAR RESULTADOS
+    # =============================================================================
+    - name: "Mostrar estado final del agente de deployment"
+      debug:
+        msg:
+          - "=== ESTADO DEL AGENTE DE DEPLOYMENT (Ubuntu 24.04) ==="
+          - "Script original: {{ 'EXISTE' if remote_launcher_script_check.stat.exists else 'NO EXISTE' }}"
+          - "Wrapper script: CREADO (/usr/local/bin/remote-server-launcher-wrapper)"
+          - "Servicio systemd: CREADO (native systemd)"
+          - "Servicio habilitado: {{ 'SÍ' if final_service_status.status.UnitFileState == 'enabled' else 'NO' }}"
+          - "Estado del servicio: {{ final_service_status.status.ActiveState | default('unknown') }}"
+          - "Puerto 8080: {{ 'EN USO' if not port_8080_check.failed else 'LIBRE' }}"
+          - "Inicio del servicio: {{ 'EXITOSO' if service_start_result is succeeded else 'FALLÓ' }}"
+          - "======================================================"
+
+    - name: "Mostrar logs del servicio"
+      debug:
+        msg: 
+          - "=== LOGS DEL SERVICIO ==="
+          - "{{ service_logs.stdout_lines[-10:] | default(['Sin logs disponibles']) }}"
+          - "======================="
+
+    - name: "Mostrar logs personalizados"
+      debug:
+        msg: 
+          - "=== LOGS PERSONALIZADOS ==="
+          - "{{ custom_logs.stdout_lines[-5:] | default(['Sin logs personalizados']) }}"
+          - "=========================="
+
+    - name: "Mostrar comandos útiles para Ubuntu 24.04"
+      debug:
+        msg:
+          - "=== COMANDOS ÚTILES (Ubuntu 24.04) ==="
+          - "Iniciar: sudo systemctl start remote-server-launcher.service"
+          - "Parar: sudo systemctl stop remote-server-launcher.service"
+          - "Estado: sudo systemctl status remote-server-launcher.service"
+          - "Logs systemd: sudo journalctl -u remote-server-launcher.service -f"
+          - "Logs personalizados: sudo tail -f /home/admin/logs/remote-server-launcher.log"  # ← CAMBIO
+          - "Ver todos los logs: ls -la /home/admin/logs/"  # ← NUEVO
+          - "Verificar puerto: sudo netstat -tlnp | grep :8080"
+          - "Manual: sudo /usr/local/bin/remote-server-launcher-wrapper status"
+          - "Recargar: sudo systemctl daemon-reload"
+          - "======================================"
+
+    - name: "Comandos de troubleshooting"
+      debug:
+        msg:
+          - "=== TROUBLESHOOTING ==="
+          - "Ver errores: sudo journalctl -u remote-server-launcher.service --since today"
+          - "Verificar script: sudo -u {{ system_users.admin }} {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/remote_server_launcher.sh"
+          - "Test wrapper: sudo /usr/local/bin/remote-server-launcher-wrapper start"
+          - "Ver procesos: ps aux | grep remote"
+          - "Verificar permisos: ls -la {{ directories.wwwroot }}/dolibarr_sellyoursaas/scripts/"
+          - "===================="
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
